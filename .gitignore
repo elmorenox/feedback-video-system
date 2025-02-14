@@ -1,0 +1,96 @@
+# Environment
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+logs/
+log/
+
+# Tilt
+tilt_modules/
+
+# FastAPI specific
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+.mypy_cache/
+.ruff_cache/
+
+# API documentation
+docs/_build/
+site/
+
+# Development/Local files
+*.env.*
+.env.development
+.env.production
+.env.local
+.env.test
+
+# Temp files
+tmp/
+temp/
+*.tmp
+
+# Alembic
+alembic.ini
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Frontend (if you add Swagger UI customization or other static files)
+node_modules/
+static/
+dist/
+.webpack/
+
+# Deployment
+.vercel
+.netlify
+*.pem
+deploy/
+
+# Performance/Load testing
+locustfile.py
+artillery/
+k6/

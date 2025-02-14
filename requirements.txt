@@ -1,0 +1,5 @@
+pydantic
+sqlalchemy
+aiohttp
+alembic
+python-dotenv

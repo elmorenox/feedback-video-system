@@ -3,13 +3,12 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from ..models.schema import (
+    GradingData,
+    Template,
     Video,
     VideoStatus,
-    ScoreRange,
-    ScoreType,
-    Template,
-    TemplateContent
 )
+from ..schema.grading import GradingDataSchema
 from .synthesia import SynthesiaClient
 
 logger = logging.getLogger(__name__)
@@ -26,43 +25,50 @@ class VideoGenerator:
     def generate_video(self, student_deployment_id: int):
         video = None
         try:
-            # Get deployment data
-            data = self._gather_deployment_data(student_deployment_id)
+            # Get grading data and validate with Pydantic
+            grading_data: GradingDataSchema = self._gather_grading_data(student_deployment_id)
+            logger.info(
+                f"Gathered grading data for student deployment: {student_deployment_id}"
+            )
 
-            # Get active template
-            template = self._get_active_template(data["workload_number"])
+            breakpoint()
+            # Get template for this deployment
+            template = self._get_active_template(grading_data.scores.current)
             if not template:
                 raise ValueError("No active template found")
 
-            # Create video record
+            # Create video record in our db
             video = Video(
                 student_deployment_id=student_deployment_id, status=VideoStatus.PENDING
             )
             self.sqlite_db.add(video)
             self.sqlite_db.commit()
 
-            # Get content for the overall score
-            overall_contents = self._get_content_for_score(
-                template.id, data["overall_score"], ScoreType.OVERALL
-            )
+            # TODO: Here we'll add LLM integration
+            # For now, we'll log the data we'd send to LLM
+            logger.info("Would send to LLM:")
+            logger.info(grading_data.model_dump_json(indent=2))
 
-            # Fetch template variables
-            template_variables = self.synthesia.get_template_variables(
-                template.synthesia_template_id
-            )
+            # TODO: Once we have LLM integration:
+            # llm_response = self._get_llm_response(grading_data)
+            # scene_texts = self._parse_llm_response(llm_response)
 
-            logger.info(f"template vars: {template_variables}")
+            # For now, using dummy scene texts
+            scene_texts = {
+                "scene_1_text": f"Hi {{first_name}}! Your score is {grading_data.scores.current}",
+                "scene_2_text": "This is placeholder text for scene 2",
+                # ... other scenes
+            }
 
-            breakpoint()
-
-            # Map variables for Synthesia
-            variables = self._map_template_variables(
-                template, overall_contents, data, template_variables
-            )
-
-            # Generate video
+            # Generate video with Synthesia
             response = self.synthesia.create_video_from_template(
-                template_id=template.synthesia_template_id, variables=variables
+                template_id=template.synthesia_template_id,
+                variables={
+                    **scene_texts,
+                    "first_name": grading_data.student_info.name.split()[0],
+                    "last_name": grading_data.student_info.name.split()[1],
+                    "overall_score": str(grading_data.scores.current),
+                },
             )
 
             # Update video record
@@ -78,23 +84,6 @@ class VideoGenerator:
                 video.status = VideoStatus.FAILED
                 self.sqlite_db.commit()
             raise
-
-    def _get_score_range(self, score: float) -> ScoreRange:
-        return (
-            self.sqlite_db.query(ScoreRange)
-            .filter(ScoreRange.min_score <= score, ScoreRange.max_score >= score)
-            .first()
-        )
-
-    def _get_template_contents(self, template_id: str, score_range_id: str) -> list:
-        return (
-            self.sqlite_db.query(TemplateContent)
-            .filter(
-                TemplateContent.template_id == template_id,
-                TemplateContent.score_range_id == score_range_id,
-            )
-            .all()
-        )
 
     def _map_template_variables(self, template, contents, data, template_variables):
         variables = {}
@@ -121,34 +110,9 @@ class VideoGenerator:
             .first()
         )
 
-    def _get_content_for_score(self, template_id: str, score: float, score_type: ScoreType) -> list:
-        """
-        Fetches the template content for the given score and score type.
-        """
-        # Get the score range for the score
-        score_range = self._get_score_range(score)
-
-        # Get the template contents for this range and score type
-        template_contents = (
-            self.sqlite_db.query(TemplateContent)
-            .filter(
-                TemplateContent.template_id == template_id,
-                TemplateContent.score_range_id == score_range.id,
-                TemplateContent.score_type == score_type,
-            )
-            .all()
-        )
-
-        return template_contents
-
-    def _gather_deployment_data(self, deployment_id: int) -> dict:
-        """
-        Fetches deployment data for a student, including:
-        - first_name
-        - last_name
-        - overall_score
-        """
-        # Fetch deployment data from MySQL
+    def _gather_grading_data(self, deployment_id: int) -> GradingDataSchema:
+        """Gathers comprehensive data for LLM prompt"""
+        # First get basic deployment data
         deployment = self.mysql_db.execute(
             text(
                 """
@@ -159,7 +123,7 @@ class VideoGenerator:
             FROM itp_student_deployments d
             JOIN itp_students s ON d.student_id = s.id
             WHERE d.id = :deployment_id
-            """
+        """
             ),
             {"deployment_id": deployment_id},
         ).fetchone()
@@ -167,13 +131,57 @@ class VideoGenerator:
         if not deployment:
             raise ValueError(f"No deployment found for ID: {deployment_id}")
 
-        # Extract required fields
-        data = {
-            "first_name": deployment.first_name,
-            "last_name": deployment.last_name,
-            "overall_score": deployment.acc_score,
-            "workload_number": deployment.deployment_package_id,
-        }
-        logger.info(f"deployment data: {data}")
+        # Get components data
+        components = self.mysql_db.execute(
+            text(
+                """
+            SELECT
+                dc.title as name,
+                c.score,
+                c.grading
+            FROM itp_student_deployment_components c
+            JOIN itp_deployment_components dc 
+                ON c.deployment_component_id = dc.id
+            WHERE c.student_deployment_id = :deployment_id
+        """
+            ),
+            {"deployment_id": deployment_id},
+        ).fetchall()
 
-        return data
+        # Log raw data for debugging
+        logger.info(f"Deployment data: {deployment}")
+        logger.info(f"Components data: {components}")
+
+        # Build and validate with Pydantic
+        grading_data = GradingDataSchema(
+            student_info={
+                "name": f"{deployment.first_name} {deployment.last_name}",
+                "career_interest": None,  # Optional field
+            },
+            scores={
+                "current": deployment.acc_score,
+                "previous": [],  # We'll add this later
+            },
+            components=[
+                {
+                    "name": comp.name,
+                    "score": comp.score if hasattr(comp, "score") else None,
+                    "grading": comp.grading if hasattr(comp, "grading") else None,
+                }
+                for comp in components
+            ],
+            feedback={
+                "acc_grading": deployment.acc_grading,
+                "acc_data": deployment.acc_data,
+            },
+        )
+
+        # Store in GradingData
+        db_record = GradingData(
+            student_deployment_id=deployment_id, raw_data=grading_data.model_dump()
+        )
+        self.sqlite_db.add(db_record)
+        self.sqlite_db.commit()
+
+        logger.info(f"Stored grading data for deployment {deployment_id}")
+        return grading_data

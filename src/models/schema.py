@@ -6,11 +6,9 @@ from sqlalchemy import (
     Column,
     Integer,
     String,
-    Boolean,
     DateTime,
     JSON,
     ForeignKey,
-    Float,
     Enum as SQLAlchemyEnum,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -22,12 +20,6 @@ class VideoStatus(str, Enum):
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
-
-
-class ScoreType(str, Enum):
-    OVERALL = "overall"
-    COMPONENT = "component"
-    SUBCOMPONENT = "subcomponent"
 
 
 class BaseMixin:
@@ -44,24 +36,16 @@ class Video(BaseMixin, Base):
     status = Column(SQLAlchemyEnum(VideoStatus))
 
 
-class ScoreRange(BaseMixin, Base):
-    __tablename__ = "score_ranges"
-    name = Column(String)
-    min_score = Column(Float)
-    max_score = Column(Float)
+class GradingData(BaseMixin, Base):
+    __tablename__ = "grading_data"
+    student_deployment_id = Column(Integer, unique=True)
+    raw_data = Column(JSON)
+    llm_response = Column(JSON)
+    created_for_template_id = Column(UUID(as_uuid=True), ForeignKey("templates.id"))
 
 
 class Template(BaseMixin, Base):
     __tablename__ = "templates"
-    deployment_package_id = Column(Integer)  # Links to workload
-    synthesia_template_id = Column(String)  # ID from Synthesia studio
-    variables = Column(JSON)  # Maps Synthesia vars to our data fields
-
-
-class TemplateContent(BaseMixin, Base):
-    __tablename__ = "template_contents"
-    template_id = Column(UUID(as_uuid=True), ForeignKey("templates.id"))
-    score_range_id = Column(UUID(as_uuid=True), ForeignKey("score_ranges.id"))
-    variable_name = Column(String)  # Which Synthesia variable this maps to
-    content = Column(String)  # Text with our placeholders
-    score_type = Column(SQLAlchemyEnum(ScoreType))
+    deployment_package_id = Column(Integer)
+    synthesia_template_id = Column(String)
+    variables = Column(JSON)

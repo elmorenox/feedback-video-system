@@ -1,0 +1,38 @@
+Generate a script for a project feedback video. The script should have 8 scenes:
+
+NOTES: give me the result in a flat json with keys being the scene number and the values being the scene text
+
+1. **Introduction and Overall Feedback**:
+   - Greet the student by name.
+   - Acknowledge their completion of the workload.
+   - Provide their overall score and general feedback.
+
+2. **Workload Overview and Business Objective**:
+   - Explain the focus of the workload (e.g., containerization, Docker, Terraform).
+   - Describe the business objectives and how they align with the student’s career interests.
+
+3. **Relevance to Career Interests**:
+   - Highlight how the workload aligns with the student’s career interests (e.g., Cybersecurity).
+   - Emphasize the skills it focuses on (e.g., isolation, automation, rapid rollouts).
+
+4. **Overall Performance and Ranking**:
+   - Provide the student’s overall score and ranking in the cohort.
+   - Highlight improvements over previous workloads and areas needing attention.
+
+5. **Component Scores Breakdown**:
+   - Break down the student’s performance across key components (e.g., Application Development, Build and Deployment).
+   - Provide scores, strengths, and areas for improvement.
+
+6. **Detailed Feedback on Components**:
+   - Provide detailed feedback on specific components.
+   - Highlight examples of issues and suggestions for improvement.
+
+7. **Next Steps and Recommendations**:
+   - Suggest actionable next steps (e.g., review materials, redo workload, attend study groups).
+   - Encourage the student to schedule office hours for further support.
+
+8. **Encouragement and Closing Remarks**:
+   - Acknowledge the student’s progress and encourage them to stay focused.
+   - Invite them to reach out to instructors for further questions or support.
+
+GRADING DATA BELOW:

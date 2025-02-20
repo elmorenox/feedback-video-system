@@ -1,0 +1,31 @@
+[tool.poetry]
+name = "feedback-video-system"
+version = "0.1.0"
+description = "Automated feedback video generation system"
+authors = ["Your Name <your.email@example.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+fastapi = "^0.109.2"
+uvicorn = "^0.27.1"
+sqlalchemy = "^2.0.25"
+httpx = "^0.26.0"
+python-dotenv = "^1.0.0"
+sshtunnel = "^0.4.0"
+langchain = "^0.1.4"
+openai = "^1.10.0"
+python-multipart = "^0.0.6"
+descript-api = "^0.0.5"
+pymysql = "^1.1.0"
+alembic = "^1.13.1"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+pytest-asyncio = "^0.23.4"
+black = "^24.1.1"
+isort = "^5.13.2"
+mypy = "^1.8.0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

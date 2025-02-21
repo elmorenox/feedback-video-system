@@ -1,0 +1,99 @@
+<svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <!-- Background -->
+    <rect width="1200" height="800" fill="#f8f9fa"/>
+    
+    <!-- Title -->
+    <text x="600" y="40" text-anchor="middle" font-family="Arial" font-size="24" font-weight="bold">Feedback System Architecture: MVP to Enhanced</text>
+    
+    <!-- MVP Section (Left Side) -->
+    <rect x="50" y="70" width="500" height="650" rx="5" fill="#fff" stroke="#666" stroke-width="1"/>
+    <text x="300" y="100" text-anchor="middle" font-family="Arial" font-size="20" font-weight="bold">Phase 1: MVP</text>
+    
+    <!-- MVP Components -->
+    <!-- FastAPI -->
+    <rect x="70" y="120" width="460" height="120" rx="5" fill="#e8eaf6" stroke="#3f51b5" stroke-width="2"/>
+    <text x="300" y="140" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold">FastAPI Endpoints</text>
+    <text x="90" y="165" font-family="Arial" font-size="12">POST /deployments/{id}/generate-script</text>
+    <text x="90" y="185" font-family="Arial" font-size="12">GET /deployments/{id}/script-status</text>
+    <text x="90" y="205" font-family="Arial" font-size="12">POST /videos/heygen-webhook</text>
+    <text x="90" y="225" font-family="Arial" font-size="12">GET /deployments/{id}/video-status</text>
+    
+    <!-- Data Layer -->
+    <rect x="70" y="260" width="220" height="140" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="2"/>
+    <text x="180" y="280" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold">MySQL Tables</text>
+    <text x="90" y="305" font-family="Arial" font-size="12">• itp_cohorts</text>
+    <text x="90" y="325" font-family="Arial" font-size="12">• itp_students</text>
+    <text x="90" y="345" font-family="Arial" font-size="12">• itp_student_deployments</text>
+    <text x="90" y="365" font-family="Arial" font-size="12">• itp_deployment_components</text>
+    <text x="90" y="385" font-family="Arial" font-size="12">• itp_deployment_steps</text>
+    
+    <!-- LangChain Simple -->
+    <rect x="310" y="260" width="220" height="140" rx="5" fill="#fff3e0" stroke="#ef6c00" stroke-width="2"/>
+    <text x="420" y="280" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold">Single LangChain</text>
+    <text x="330" y="305" font-family="Arial" font-size="12">• Data Gathering</text>
+    <text x="330" y="325" font-family="Arial" font-size="12">• Grade Compilation</text>
+    <text x="330" y="345" font-family="Arial" font-size="12">• Script Generation</text>
+    <text x="330" y="365" font-family="Arial" font-size="12">• 8-Scene Structure</text>
+    
+    <!-- External Services MVP -->
+    <rect x="70" y="420" width="460" height="100" rx="5" fill="#e8f5e9" stroke="#388e3c" stroke-width="2"/>
+    <text x="300" y="440" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold">External Services</text>
+    <text x="90" y="465" font-family="Arial" font-size="14">ChatGPT + Descript</text>
+    <text x="90" y="485" font-family="Arial" font-size="12">• Script Generation & Refinement</text>
+    <text x="290" y="465" font-family="Arial" font-size="14">HeyGen</text>
+    <text x="290" y="485" font-family="Arial" font-size="12">• Video Generation</text>
+    
+    <!-- Enhanced Section (Right Side) -->
+    <rect x="650" y="70" width="500" height="650" rx="5" fill="#fff" stroke="#666" stroke-width="1"/>
+    <text x="900" y="100" text-anchor="middle" font-family="Arial" font-size="20" font-weight="bold">Phase 2: Enhanced</text>
+    
+    <!-- Enhanced Components -->
+    <!-- Enhanced FastAPI -->
+    <rect x="670" y="120" width="460" height="120" rx="5" fill="#e8eaf6" stroke="#3f51b5" stroke-width="2"/>
+    <text x="900" y="140" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold">Enhanced FastAPI Endpoints</text>
+    <text x="690" y="165" font-family="Arial" font-size="12">All MVP Endpoints +</text>
+    <text x="690" y="185" font-family="Arial" font-size="12">POST /vectors/store-feedback</text>
+    <text x="690" y="205" font-family="Arial" font-size="12">GET /vectors/similar-feedback</text>
+    <text x="690" y="225" font-family="Arial" font-size="12">POST /deployments/{id}/generate-enhanced-script</text>
+    
+    <!-- Enhanced Data Layer -->
+    <rect x="670" y="260" width="220" height="140" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="2"/>
+    <text x="780" y="280" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold">Data Storage</text>
+    <text x="690" y="305" font-family="Arial" font-size="12">MySQL (Same as MVP) +</text>
+    <text x="690" y="325" font-family="Arial" font-size="12">Pinecone Vector Store:</text>
+    <text x="690" y="345" font-family="Arial" font-size="12">• Feedback Embeddings</text>
+    <text x="690" y="365" font-family="Arial" font-size="12">• Pattern Storage</text>
+    <text x="690" y="385" font-family="Arial" font-size="12">• Similarity Indexes</text>
+    
+    <!-- Multiple Agents -->
+    <rect x="910" y="260" width="220" height="140" rx="5" fill="#fff3e0" stroke="#ef6c00" stroke-width="2"/>
+    <text x="1020" y="280" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold">LangChain Agents</text>
+    <text x="930" y="305" font-family="Arial" font-size="12">• Data Agent</text>
+    <text x="930" y="325" font-family="Arial" font-size="12">• Context Agent</text>
+    <text x="930" y="345" font-family="Arial" font-size="12">• Script Agent</text>
+    <text x="930" y="365" font-family="Arial" font-size="12">• Coordination Agent</text>
+    
+    <!-- Enhanced Services -->
+    <rect x="670" y="420" width="460" height="100" rx="5" fill="#e8f5e9" stroke="#388e3c" stroke-width="2"/>
+    <text x="900" y="440" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold">Enhanced Services Integration</text>
+    <text x="690" y="465" font-family="Arial" font-size="14">ChatGPT + Descript</text>
+    <text x="690" y="485" font-family="Arial" font-size="12">• Enhanced Script Generation & Audio</text>
+    <text x="890" y="465" font-family="Arial" font-size="14">HeyGen</text>
+    <text x="890" y="485" font-family="Arial" font-size="12">• Advanced Video Templates</text>
+    
+    <!-- Key Differences Box -->
+    <rect x="50" y="540" width="1100" height="160" rx="5" fill="#fff" stroke="#666" stroke-width="1"/>
+    <text x="70" y="565" font-family="Arial" font-size="16" font-weight="bold">Key Differences</text>
+    
+    <text x="70" y="590" font-family="Arial" font-size="14" font-weight="bold">Complexity:</text>
+    <text x="160" y="590" font-family="Arial" font-size="12">MVP: Single chain, direct flow → Enhanced: Multiple agents, sophisticated orchestration</text>
+    
+    <text x="70" y="615" font-family="Arial" font-size="14" font-weight="bold">Context:</text>
+    <text x="160" y="615" font-family="Arial" font-size="12">MVP: Current data only → Enhanced: Historical patterns and similar cases</text>
+    
+    <text x="70" y="640" font-family="Arial" font-size="14" font-weight="bold">Quality:</text>
+    <text x="160" y="640" font-family="Arial" font-size="12">MVP: Basic 8-scene structure → Enhanced: Context-aware, pattern-based feedback</text>
+    
+    <text x="70" y="665" font-family="Arial" font-size="14" font-weight="bold">Scale:</text>
+    <text x="160" y="665" font-family="Arial" font-size="12">MVP: Direct processing → Enhanced: Parallel agent operations</text>
+</svg>

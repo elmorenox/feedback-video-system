@@ -65,3 +65,7 @@ class VideoResponse(VideoBase):
 
     class Config:
         from_attributes = True
+
+
+class CreateVideoRequest(BaseModel):
+    student_deployment_id: int

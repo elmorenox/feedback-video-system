@@ -3,7 +3,7 @@ from src.database import get_mysql_db
 from sqlalchemy import text
 
 
-def get_student_deployment_details(deployment_id: int):
+def select_student_deployment_details(deployment_id: int):
     query = """
     SELECT
         s.first_name,
@@ -33,6 +33,7 @@ def get_student_deployment_details(deployment_id: int):
         dc.score AS component_score,
         dc.deployment_component_id,
         dp.name AS deployment_package_name,
+        dp.id AS deployment_package_id,
         CONCAT(dp.objectives, '\n\n', dp.notes) AS deployment_package_description
     FROM
         itp_students s

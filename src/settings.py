@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 
+
 class Settings(BaseSettings):
     # FastAPI
     SECRET_KEY: str
@@ -21,11 +22,12 @@ class Settings(BaseSettings):
 
     # HeyGen
     HEYGEN_API_KEY: str
-    
+
     # Descript
     DESCRIPT_API_KEY: str
 
     class Config:
         env_file = ".env"
+
 
 settings = Settings()

@@ -3,11 +3,18 @@ from typing import Union, List
 from sqlalchemy import text
 from sqlalchemy.engine import Row
 
-from src.schema.video import StudentDeploymentDetails, DeploymentPackage
+from src.schema.video import (
+    StudentDeploymentDetails,
+    DeploymentPackage,
+    DeploymentStep,
+    DeploymentComponent,
+)
 from src.database import get_mysql_db
 
 
-def select_student_deployment_details(deployment_id: int, to_pydantic: bool = True) -> Union[StudentDeploymentDetails, List[Row]]:
+def select_student_deployment_details(
+    deployment_id: int, to_pydantic: bool = True
+) -> Union[StudentDeploymentDetails, List[Row]]:
     """
     Fetch student deployment details from the database.
 
@@ -18,7 +25,7 @@ def select_student_deployment_details(deployment_id: int, to_pydantic: bool = Tr
     Returns:
         Union[StudentDeploymentDetails, List[Row]]: The query results, either as a Pydantic model or raw rows.
     """
-    query = """
+    query: str = """
     SELECT
         s.first_name,
         s.last_name,
@@ -65,7 +72,7 @@ def select_student_deployment_details(deployment_id: int, to_pydantic: bool = Tr
         d.id = :deployment_id
     """
     db = next(get_mysql_db())
-    results = db.execute(
+    results: List[Row] = db.execute(
         text(query),
         {
             "deployment_id": deployment_id
@@ -76,30 +83,35 @@ def select_student_deployment_details(deployment_id: int, to_pydantic: bool = Tr
         return results
 
     # First row has the common data
-    first_row = results[0]
+    # Did this because the current version of MySQL does't have JSON AGG
+    first_row: Row = results[0]
 
     # Parse components and steps from all rows
-    components = []
-    steps = []
+    components: List[DeploymentComponent] = []
+    steps: List[DeploymentStep] = []
     for row in results:
         if row.component_grading:
-            components.append({
-                "grading": row.component_grading,
-                "score": row.component_score,
-                "deployment_component_id": row.deployment_component_id
-            })
+            components.append(
+                DeploymentComponent(
+                    grading=row.component_grading,
+                    score=row.component_score,
+                    deployment_component_id=row.deployment_component_id,
+                )
+            )
         if row.step_grading:
-            steps.append({
-                "grading": row.step_grading,
-                "score": row.step_score,
-                "objectives": row.step_objectives,
-                "instructions": row.step_instructions
-            })
+            steps.append(
+                DeploymentStep(
+                    grading=row.step_grading,
+                    score=row.step_score,
+                    objectives=row.step_objectives,
+                    instructions=row.step_instructions,
+                )
+            )
 
-    deployment_package = DeploymentPackage(
+    deployment_package: DeploymentPackage = DeploymentPackage(
         id=first_row.deployment_package_id,
         name=first_row.deployment_package_name,
-        description=first_row.deployment_package_description
+        description=first_row.deployment_package_description,
     )
 
     return StudentDeploymentDetails(
@@ -124,5 +136,5 @@ def select_student_deployment_details(deployment_id: int, to_pydantic: bool = Tr
         func_score=first_row.func_score,
         components=components,
         steps=steps,
-        deployment_package=deployment_package
+        deployment_package=deployment_package,
     )

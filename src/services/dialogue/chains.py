@@ -6,7 +6,7 @@ from src.settings import settings
 from src.logging_config import app_logger
 
 
-def create_chat_model():
+def create_chat_model() -> ChatOpenAI:
     """Initialize ChatGPT model"""
     app_logger.debug("creating chat model")
     return ChatOpenAI(
@@ -16,10 +16,10 @@ def create_chat_model():
     )
 
 
-def create_script_chain():
+def create_script_chain() -> LLMChain:
     """Create chain for script generation"""
     app_logger.debug("Creating ")
-    chat = create_chat_model()
+    chat: ChatOpenAI = create_chat_model()
     app_logger.debug("Returning LLMChain")
     return LLMChain(
         llm=chat,

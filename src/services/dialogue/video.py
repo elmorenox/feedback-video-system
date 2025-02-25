@@ -29,34 +29,26 @@ async def create(deployment_id: int, db: Session) -> Video:
     if existing_video:
         return existing_video
 
-    # Start transaction
-    try:
-        # Generate script
-        app_logger.debug("Creating script")
-        script: Script = await generate_script(deployment_data, db)
+    # Generate script
+    app_logger.debug("Creating script")
+    script: Script = await generate_script(deployment_data, db)
 
-        # Create video record
-        video: Video = Video(
-            student_deployment_id=deployment_id,
-            script_id=script.id,
-            status="processing"
-        )
-        db.add(video)
-        db.commit()
-        db.refresh(video)
+    # Create video record
+    video: Video = Video(
+        student_deployment_id=deployment_id,
+        script_id=script.id,
+        status="processing"
+    )
+    db.add(video)
+    db.commit()
+    db.refresh(video)
 
-        # Submit to HeyGen
-        await submit_to_heygen(video.id, script.scene_dialogue)
+    # Submit to HeyGen
+    await submit_to_heygen(video.id, script.scene_dialogue)
 
-        return video
-
-    except Exception as e:
-        db.rollback()
-        app_logger(e)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Video creation failed: {str(e)}"
-        )
+    # TODO: This will need to return something else based on return of submit_to_heygen
+    # Or maybe move this to another function
+    return video
 
 
 async def get(video_id: UUID, db: Session) -> Video:

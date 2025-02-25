@@ -4,6 +4,8 @@ from uuid import UUID
 from typing import Dict, List, Optional
 from pydantic import BaseModel
 
+from src.schema.base import BaseResponse
+
 
 # Base Models for API Responses
 class TimeStampedModel(BaseModel):
@@ -77,12 +79,19 @@ class CreateVideoRequest(BaseModel):
     student_deployment_id: int
 
 
-class VideoResponse(DBModelBase):
+class VideoResponseData(DBModelBase):
     student_deployment_id: int
     script_id: UUID
     status: str
     heygen_video_id: Optional[str] = None
     video_url: Optional[str] = None
+
+    class Config:
+        from_attributes = True  # Enable ORM mode
+
+
+class VideoResponse(BaseResponse[VideoResponseData]):
+    pass
 
 
 class ScriptResponse(DBModelBase):

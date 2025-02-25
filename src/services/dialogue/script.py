@@ -1,38 +1,43 @@
 # services/dialogue/script.py
 from sqlalchemy.orm import Session
-from src.models.video import Script, DeploymentPackageExt
+from sqlalchemy import select
+from src.models.video import Script, DeploymentPackageExt, ScriptStatus
+from src.schema.video import StudentDeploymentDetails
 from src.services.dialogue.chains import create_script_chain
 from src.logging_config import app_logger
 
 
-async def generate(grading_data: dict, db: Session) -> Script:
+async def generate(grading_data: StudentDeploymentDetails, db: Session) -> Script:
     """Generate script for a deployment"""
-    # Get prompt template
     app_logger.debug("Getting prompt template")
 
-    prompt_template = db.query(DeploymentPackageExt).filter(
-        DeploymentPackageExt.deployment_package_id == grading_data[0][27]
-    ).first()
+    # Access deployment_package directly from grading_data
+    deployment_package_id = grading_data.deployment_package.id
 
-    app_logger.debug("creating script chain")
-    # Generate script using LangChain
+    stmt = select(DeploymentPackageExt).where(
+        DeploymentPackageExt.deployment_package_id == deployment_package_id
+    )
+    prompt_template = db.execute(stmt).scalar_one()
+
+    app_logger.debug("Creating script chain")
     chain = create_script_chain()
     response = await chain.arun({
         "prompt": prompt_template.prompt_template,
-        "grading_data": grading_data
+        "grading_data": grading_data.model_dump()
     })
 
-    app_logger.debug(f"response {response}")
+    app_logger.debug(f"Response: {response}")
 
-    # Create script record
+    # Create a new Script object
     script = Script(
-        student_deployment_id=500,
+        student_deployment_id=grading_data.deployment_id,
         raw_llm_response=response,
         prompt_used=prompt_template.prompt_template,
-        status="complete",
+        status=ScriptStatus.COMPLETE
     )
 
+    # Add the script to the database
     db.add(script)
     db.commit()
-
+    db.refresh(script)
     return script

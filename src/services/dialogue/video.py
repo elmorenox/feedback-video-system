@@ -1,11 +1,12 @@
 # src/services/dialogue/video.py
-from uuid import UUID
-from sqlalchemy.orm import Session
 from fastapi import HTTPException
+from sqlalchemy.orm import Session
+from uuid import UUID
 
 from src.models.video import Script, Video
 from src.api.dependencies.db import select_student_deployment_details
 from src.services.dialogue.script import generate as generate_script
+from src.schema.video import StudentDeploymentDetails
 from src.logging_config import app_logger
 
 
@@ -14,7 +15,7 @@ async def create(deployment_id: int, db: Session) -> Video:
     Create a video for a deployment, handling script generation and HeyGen submission
     """
     # Check deployment exists and get data
-    deployment_data = select_student_deployment_details(deployment_id)
+    deployment_data: StudentDeploymentDetails = select_student_deployment_details(deployment_id)
 
     app_logger.debug("deployment data retrieved")
 
@@ -22,7 +23,7 @@ async def create(deployment_id: int, db: Session) -> Video:
         raise HTTPException(status_code=404, detail="Deployment not found")
 
     # Check for existing video
-    existing_video = db.query(Video).filter(
+    existing_video: Video = db.query(Video).filter(
         Video.student_deployment_id == deployment_id
     ).first()
     if existing_video:
@@ -32,10 +33,10 @@ async def create(deployment_id: int, db: Session) -> Video:
     try:
         # Generate script
         app_logger.debug("Creating script")
-        script = await generate_script(deployment_data, db)
+        script: Script = await generate_script(deployment_data, db)
 
         # Create video record
-        video = Video(
+        video: Video = Video(
             student_deployment_id=deployment_id,
             script_id=script.id,
             status="processing"

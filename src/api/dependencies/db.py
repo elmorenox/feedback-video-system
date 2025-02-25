@@ -1,9 +1,23 @@
+# src/api/dependencies/db.py
+from typing import Union, List
+from sqlalchemy import text
+from sqlalchemy.engine import Row
+
+from src.schema.video import StudentDeploymentDetails, DeploymentPackage
 from src.database import get_mysql_db
 
-from sqlalchemy import text
 
+def select_student_deployment_details(deployment_id: int, to_pydantic: bool = True) -> Union[StudentDeploymentDetails, List[Row]]:
+    """
+    Fetch student deployment details from the database.
 
-def select_student_deployment_details(deployment_id: int):
+    Args:
+        deployment_id (int): The ID of the deployment to fetch details for.
+        to_pydantic (bool): If True, returns the results as a Pydantic model. If False, returns raw query results.
+
+    Returns:
+        Union[StudentDeploymentDetails, List[Row]]: The query results, either as a Pydantic model or raw rows.
+    """
     query = """
     SELECT
         s.first_name,
@@ -51,10 +65,64 @@ def select_student_deployment_details(deployment_id: int):
         d.id = :deployment_id
     """
     db = next(get_mysql_db())
-    result = db.execute(
+    results = db.execute(
         text(query),
         {
             "deployment_id": deployment_id
         }
     ).fetchall()
-    return result
+
+    if not to_pydantic:
+        return results
+
+    # First row has the common data
+    first_row = results[0]
+
+    # Parse components and steps from all rows
+    components = []
+    steps = []
+    for row in results:
+        if row.component_grading:
+            components.append({
+                "grading": row.component_grading,
+                "score": row.component_score,
+                "deployment_component_id": row.deployment_component_id
+            })
+        if row.step_grading:
+            steps.append({
+                "grading": row.step_grading,
+                "score": row.step_score,
+                "objectives": row.step_objectives,
+                "instructions": row.step_instructions
+            })
+
+    deployment_package = DeploymentPackage(
+        id=first_row.deployment_package_id,
+        name=first_row.deployment_package_name,
+        description=first_row.deployment_package_description
+    )
+
+    return StudentDeploymentDetails(
+        first_name=first_row.first_name,
+        last_name=first_row.last_name,
+        email=first_row.email,
+        tech_experience_id=first_row.tech_experience_id,
+        employment_status_id=first_row.employment_status_id,
+        cohort_name=first_row.cohort_name,
+        cohort_start_date=first_row.cohort_start_date,
+        cohort_end_date=first_row.cohort_end_date,
+        deployment_id=first_row.deployment_id,
+        deployment_start_date=first_row.deployment_start_date,
+        deployment_end_date=first_row.deployment_end_date,
+        acc_grading=first_row.acc_grading,
+        acc_score=first_row.acc_score,
+        otd_grading=first_row.otd_grading,
+        otd_score=first_row.otd_score,
+        opt_grading=first_row.opt_grading,
+        opt_score=first_row.opt_score,
+        func_grading=first_row.func_grading,
+        func_score=first_row.func_score,
+        components=components,
+        steps=steps,
+        deployment_package=deployment_package
+    )

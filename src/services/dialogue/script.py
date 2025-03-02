@@ -53,6 +53,5 @@ async def generate(
     db.add(script)
     db.commit()
     db.refresh(script)
-
     
     return script

@@ -1,3 +1,4 @@
+# src/schema/video.py
 from datetime import datetime, date
 from uuid import UUID
 from typing import Dict, List, Optional
@@ -265,13 +266,3 @@ class VideoResponseData(DBModelBase):
 
 class VideoResponse(BaseResponse[VideoResponseData]):
     pass
-
-
-class ScriptResponse(DBModelBase):
-    student_deployment_id: int
-    prompt_used: str
-    status: str
-    content: Optional[str] = None
-    scene_dialogue: Optional[Dict] = None
-    variables: Optional[Dict] = None
-    raw_llm_response: Optional[str] = None

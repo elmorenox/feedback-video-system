@@ -1,50 +1,52 @@
 # src/services/dialogue/video.py
 import json
-
-from typing import Any, Dict
-from fastapi import HTTPException
+from typing import Any, Dict, Optional, List
 from sqlalchemy.orm import Session
 from uuid import UUID
 
 from src.models.video import Script, Video
 from src.api.dependencies.db import (
     select_student_deployment_details,
-    get_student_info,
-    get_cohort_scores,
-    calculate_percentile_metrics,
+    select_cohort,
+    select_cohort_scores,
 )
 from src.services.dialogue.script import generate as generate_script
-from src.schema.video import StudentDeploymentDetails, VideoData
+from src.schema.itp import (
+    CohortComparison,
+    ScriptPromptData,
+    StudentDeploymentDetails
+)
+from src.schema.video import (
+    HeyGenVariable,
+    HeyGenPayload,
+    HeyGenVariableProperties,
+    VideoData
+)
 from src.settings import settings
 from src.logging_config import app_logger
 
 
-async def create(deployment_id: int, db: Session) -> VideoData:
+async def create(student_deployment_id: int, db: Session) -> VideoData:
     """
     Create a video for a deployment, handling script generation and HeyGen submission
     """
-    # Check deployment exists and get data
-    deployment_data: StudentDeploymentDetails = select_student_deployment_details(deployment_id)
 
-    app_logger.debug("deployment data retrieved")
+    script_prompt_data: ScriptPromptData = get_script_prompt_data(
+        student_deployment_id
+    )
 
-    if not deployment_data:
-        raise HTTPException(status_code=404, detail="Deployment not found")
+    app_logger.debug("Script prompt data retrieved")
 
-    # Get cohort comparison data
-    # TODO: This needs to be done with pydantic models. Possibly added to select_student_deployment_details
-    cohort_comparison = get_student_accuracy_percentile(deployment_id)
-
+    # Generate script
     app_logger.debug("Creating script")
     script: Script = await generate_script(
-        deployment_data,
-        cohort_comparison,
+        script_prompt_data,
         db
     )
 
     # Create video record
     video: Video = Video(
-        student_deployment_id=deployment_id,
+        student_deployment_id=script_prompt_data.deployment_details.deployment.id,
         script_id=script.id,
         status="processing"
     )
@@ -52,167 +54,266 @@ async def create(deployment_id: int, db: Session) -> VideoData:
     db.commit()
     db.refresh(video)
 
+    breakpoint()
+
     # Submit to HeyGen
+    # return details from HeyGen API response
     await submit_to_heygen(
         template_id=settings.HEYGEN_TEMPLATE_ID,
-        student_data=deployment_data,
+        student_deployment_data=script_prompt_data.deployment_details.deployment,
         script_data=script.scene_dialogue,
-        percentile_data=cohort_comparison,
+        cohort_data=script_prompt_data.deployment_details.cohort_comparison,
         api_key=settings.HEYGEN_API_KEY,
+        video_id=video.id,
     )
-    # TODO: This will need to return something else based on return of submit_to_heygen
-    # Or maybe move this to another function
-    return video
+
+    return VideoData.from_orm(video)
 
 
-async def get(video_id: UUID, db: Session) -> Video:
-    """Get video status"""
-    return db.query(Video).filter(Video.id == video_id).first()
-
-
-async def update_heygen_status(video_id: UUID, heygen_data: dict, db: Session):
+def get_script_prompt_data(
+    student_deployment_id: int, include_cohort_comparison: bool = True
+) -> Optional[ScriptPromptData]:
     """
-    Handle HeyGen webhook status updates
-    """
-    video = await get(video_id, db)
-    if not video:
-        raise HTTPException(status_code=404, detail="Video not found")
-
-    # Update video with HeyGen status
-    video.heygen_video_id = heygen_data.get('video_id')
-    video.status = heygen_data.get('status')
-    video.video_url = heygen_data.get('video_url')
-
-    db.commit()
-    db.refresh(video)
-    return video
-
-
-def get_student_accuracy_percentile(deployment_id: int) -> Dict:
-    """
-    Main function to get a student's accuracy percentile within their cohort.
+    Get complete data needed for script generation.
+    Uses query chaining where possible for efficiency.
 
     Args:
-        deployment_id: The ID of the student's deployment
+        student_deployment_id: The ID of the student deployment
+        include_cohort_comparison: Whether to include cohort comparison data
 
     Returns:
-        Dict with student percentile information
+        ScriptPromptData model or None if not found
     """
-    # Get student info
-    student_info = get_student_info(deployment_id)
+    # Get cohort information
+    cohort = select_cohort(student_deployment_id=student_deployment_id)
+    if not cohort:
+        return None
 
-    if not student_info:
-        return {"error": f"No deployment found with ID {deployment_id}"}
+    # Get complete deployment details
+    student_deployment_details: StudentDeploymentDetails = select_student_deployment_details(
+        student_deployment_id
+    )
+    if not student_deployment_details:
+        return None
 
-    # Get cohort scores
-    cohort_scores = get_cohort_scores(
-        student_info.cohort_id, student_info.deployment_package_id
+    # Get cohort comparison if requested
+    cohort_comparison = None
+    if (
+        include_cohort_comparison
+        and student_deployment_details.deployment.acc_score is not None
+    ):
+        # Get cohort scores
+        cohort_scores = select_cohort_scores(
+            cohort_id=cohort.id,
+            package_id=student_deployment_details.deployment.package_id
+        )
+
+        # Calculate comparison metrics
+        cohort_comparison = calculate_cohort_comparison(
+            student_deployment_details.deployment.acc_score, cohort_scores
+        )
+
+    # Create comprehensive data model
+    return ScriptPromptData(
+        deployment_details=student_deployment_details,
+        cohort_comparison=cohort_comparison,
     )
 
-    # Calculate metrics
-    metrics = calculate_percentile_metrics(student_info.acc_score, cohort_scores)
 
-    # Return combined result
-    return {
-        "student_name": f"{student_info.first_name} {student_info.last_name}",
-        "cohort_name": student_info.cohort_name,
-        "acc_score": student_info.acc_score,
-        "cohort_avg_acc_score": metrics["cohort_avg_acc_score"],
-        "percentile": metrics["percentile"],
-        "rank": metrics["rank"],
-    }
+def _get_ordinal_suffix(n: int) -> str:
+    """Return the ordinal suffix for a number."""
+    if 11 <= n % 100 <= 13:
+        return "th"
+    else:
+        return {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+
+
+def calculate_cohort_comparison(
+    student_score: float, cohort_scores: List[float]
+) -> CohortComparison:
+    """
+    Calculate percentile and related metrics for a student within their cohort.
+
+    Args:
+        student_score: The student's accuracy score
+        cohort_scores: List of accuracy scores for the cohort
+
+    Returns:
+        CohortComparison object with calculated metrics
+    """
+    total_students = len(cohort_scores)
+
+    if total_students == 0:
+        return CohortComparison(
+            total_students=0,
+            students_below_or_equal=0,
+            cohort_avg_acc_score=0.0,
+            percentile=0.0,
+            rank="N/A",
+        )
+
+    # Count students with score <= student_score
+    students_below_or_equal = sum(
+        1 for score in cohort_scores if score <= student_score
+    )
+
+    # Calculate average score
+    cohort_avg_acc_score = sum(cohort_scores) / total_students
+
+    # Calculate percentile
+    percentile = (students_below_or_equal / total_students) * 100
+
+    # Get rank ordinal
+    rank_ordinal = _get_ordinal_suffix(students_below_or_equal)
+    rank = f"{students_below_or_equal}{rank_ordinal} out of {total_students}"
+
+    return CohortComparison(
+        total_students=total_students,
+        students_below_or_equal=students_below_or_equal,
+        cohort_avg_acc_score=round(cohort_avg_acc_score, 2),
+        percentile=round(percentile, 1),
+        rank=rank,
+    )
 
 
 def build_heygen_payload(
     student_data: StudentDeploymentDetails,
     script_data: Dict[str, Dict[str, str]],
-    percentile_data: Dict[str, Any],
+    cohort_data: CohortComparison,
     test_mode: bool = True,
-) -> Dict[str, Any]:
+) -> HeyGenPayload:
     """
     Build the HeyGen API payload for video generation.
 
     Args:
-        student_data: StudentDeploymentDetails with all student information
+        student_data: StudentDeployment with all student information
         script_data: Nested dictionary containing scene data
-                    ({"1": {"scene_1_title": "...", "scene_1_script": "..."}})
-        percentile_data: Dictionary with percentile information from get_student_accuracy_percentile
-        template_id: HeyGen template ID to use
+        cohort_data: CohortComparisonData with percentile information
         test_mode: Whether to run in test mode (default: True)
 
     Returns:
-        Dict with complete HeyGen API payload
+        HeyGenPayload object with complete API payload
     """
     # Format components and steps summary as text
     components_summary = student_data.get_simple_components_text()
     steps_summary = student_data.get_top_and_bottom_steps_text()
 
-    # Set up all text variables
-    variables = {
-        # Student info
-        "first_name": {
-            "name": "first_name",
-            "type": "text",
-            "properties": {"content": student_data.first_name},
-        },
-        "last_name": {
-            "name": "last_name",
-            "type": "text",
-            "properties": {"content": student_data.last_name},
-        },
-        "cohort_name": {
-            "name": "cohort_name",
-            "type": "text",
-            "properties": {"content": student_data.cohort_name},
-        },
-        # Deployment info
-        "deployment_package_name": {
-            "name": "deployment_package_name",
-            "type": "text",
-            "properties": {"content": student_data.deployment_package.name},
-        },
-        "deployment_package_objectives": {
-            "name": "deployment_package_objectives",
-            "type": "text",
-            "properties": {"content": student_data.deployment_package.objectives},
-        },
-        # Score info
-        "acc_score": {
-            "name": "acc_score",
-            "type": "text",
-            "properties": {
-                "content": (
+    # Create variables dictionary
+    variables = {}
+
+    # Add student info variables
+    variables.update(_create_student_variables(student_data))
+
+    # Add deployment info variables
+    variables.update(_create_deployment_variables(student_data))
+
+    # Add score info variables
+    variables.update(_create_score_variables(student_data, cohort_data))
+
+    # Add summary variables
+    variables.update(
+        {
+            "components_summary": HeyGenVariable(
+                name="components_summary",
+                properties=HeyGenVariableProperties(content=components_summary),
+            ),
+            "steps_summary": HeyGenVariable(
+                name="steps_summary",
+                properties=HeyGenVariableProperties(content=steps_summary),
+            ),
+        }
+    )
+
+    # Add script variables
+    variables.update(_create_script_variables(script_data))
+
+    # Create the complete payload
+    payload = HeyGenPayload(
+        test=test_mode,
+        caption=False,
+        title=f"{student_data.first_name} {student_data.last_name} - {student_data.deployment_package.name} Feedback",
+        variables=variables,
+    )
+
+    app_logger.debug("HeyGen payload created")
+
+    return payload
+
+
+def _create_student_variables(
+    student_data: StudentDeploymentDetails,
+) -> Dict[str, HeyGenVariable]:
+    """Create HeyGen variables for student information"""
+    return {
+        "first_name": HeyGenVariable(
+            name="first_name",
+            properties=HeyGenVariableProperties(content=student_data.first_name),
+        ),
+        "last_name": HeyGenVariable(
+            name="last_name",
+            properties=HeyGenVariableProperties(content=student_data.last_name),
+        ),
+        "cohort_name": HeyGenVariable(
+            name="cohort_name",
+            properties=HeyGenVariableProperties(content=student_data.cohort_name),
+        ),
+    }
+
+
+def _create_deployment_variables(
+    student_data: StudentDeploymentDetails,
+) -> Dict[str, HeyGenVariable]:
+    """Create HeyGen variables for deployment information"""
+    return {
+        "deployment_package_name": HeyGenVariable(
+            name="deployment_package_name",
+            properties=HeyGenVariableProperties(
+                content=student_data.deployment_package.name
+            ),
+        ),
+        "deployment_package_objectives": HeyGenVariable(
+            name="deployment_package_objectives",
+            properties=HeyGenVariableProperties(
+                content=student_data.deployment_package.objectives
+                or "No objectives provided"
+            ),
+        ),
+    }
+
+
+def _create_score_variables(
+    student_data: StudentDeploymentDetails, cohort_data: CohortComparison
+) -> Dict[str, HeyGenVariable]:
+    """Create HeyGen variables for score information"""
+    return {
+        "acc_score": HeyGenVariable(
+            name="acc_score",
+            properties=HeyGenVariableProperties(
+                content=(
                     str(student_data.acc_score)
                     if student_data.acc_score is not None
                     else "N/A"
                 )
-            },
-        },
-        # Percentile comparison
-        "cohort_percentile": {
-            "name": "cohort_percentile",
-            "type": "text",
-            "properties": {"content": str(percentile_data.get("percentile", "N/A"))},
-        },
-        "cohort_avg_acc_score": {
-            "name": "cohort_avg_acc_score",
-            "type": "text",
-            "properties": {
-                "content": str(percentile_data.get("cohort_avg_acc_score", "N/A"))
-            },
-        },
-        # Summaries
-        "components_summary": {
-            "name": "components_summary",
-            "type": "text",
-            "properties": {"content": components_summary},
-        },
-        "steps_summary": {
-            "name": "steps_summary",
-            "type": "text",
-            "properties": {"content": steps_summary},
-        },
+            ),
+        ),
+        "cohort_percentile": HeyGenVariable(
+            name="cohort_percentile",
+            properties=HeyGenVariableProperties(
+                content=cohort_data.formatted_percentile
+            ),
+        ),
+        "cohort_avg_acc_score": HeyGenVariable(
+            name="cohort_avg_acc_score",
+            properties=HeyGenVariableProperties(
+                content=str(cohort_data.cohort_avg_acc_score or "N/A")
+            ),
+        ),
     }
+
+
+def _create_script_variables(script_data: Dict) -> Dict[str, HeyGenVariable]:
+    """Create HeyGen variables from script data"""
+    variables = {}
 
     # Extract and add all scene scripts and titles from the nested script_data
     for scene_number, scene_content in json.loads(script_data).items():
@@ -220,32 +321,20 @@ def build_heygen_payload(
             if key.startswith("scene_") and (
                 key.endswith("_script") or key.endswith("_title")
             ):
-                variables[key] = {
-                    "name": key,
-                    "type": "text",
-                    "properties": {"content": value},
-                }
+                variables[key] = HeyGenVariable(
+                    name=key, properties=HeyGenVariableProperties(content=value)
+                )
 
-    # Create the complete payload
-    payload = {
-        "test": test_mode,
-        "caption": False,
-        "title": f"{student_data.first_name} {student_data.last_name} - {student_data.deployment_package.name} Feedback",
-        "variables": variables,
-    }
-
-    app_logger.debug("HeyGen payload:")
-    app_logger.debug(payload)
-
-    return payload
+    return variables
 
 
 async def submit_to_heygen(
     template_id: str,
-    student_data: StudentDeploymentDetails,
+    student_deployment_details: StudentDeploymentDetails,
     script_data: Dict,
-    percentile_data: Dict,
+    cohort_data: CohortComparison,
     api_key: str,
+    video_id: UUID,
 ) -> Dict[str, Any]:
     """Submit a video generation request to HeyGen with template validation."""
     import httpx
@@ -254,7 +343,7 @@ async def submit_to_heygen(
     payload = build_heygen_payload(
         student_data=student_data,
         script_data=script_data,
-        percentile_data=percentile_data,
+        cohort_data=cohort_data,
     )
 
     # Fetch template info to get allowed variables
@@ -266,6 +355,9 @@ async def submit_to_heygen(
         template_response = await client.get(template_url, headers=headers)
 
         if not template_response.is_success:
+            app_logger.error(
+                f"Failed to fetch template: {template_response.status_code}"
+            )
             return {
                 "success": False,
                 "error": "Failed to fetch template information",
@@ -280,18 +372,20 @@ async def submit_to_heygen(
         # Now make the generate request with valid variables
         generate_url = f"https://api.heygen.com/v2/template/{template_id}/generate"
         response = await client.post(
-            generate_url, headers=headers, json=filtered_payload
+            generate_url, headers=headers, json=filtered_payload.dict()
         )
         response_data = response.json()
 
-        app_logger.debug("HeyGen response:")
-        app_logger.debug(response_data)
+        app_logger.debug("HeyGen response received")
 
         if (
             not response.is_success
             or "error" in response_data
             and response_data["error"]
         ):
+            app_logger.error(
+                f"HeyGen API error: {response_data.get('error', 'Unknown error')}"
+            )
             return {
                 "success": False,
                 "error": response_data.get("error", "Unknown error"),
@@ -299,12 +393,16 @@ async def submit_to_heygen(
             }
 
         # Extract video ID from response
-        video_id = response_data.get("data", {}).get("video_id")
+        heygen_video_id = response_data.get("data", {}).get("video_id")
 
-        return {"success": True, "video_id": video_id, "response": response_data}
+        return {
+            "success": True,
+            "video_id": heygen_video_id,
+            "response": response_data,
+        }
 
 
-def filter_heygen_variables(template_info, payload):
+def filter_heygen_variables(template_info, payload: HeyGenPayload) -> HeyGenPayload:
     """
     Filter payload variables to only include those defined in the HeyGen template.
 
@@ -320,14 +418,18 @@ def filter_heygen_variables(template_info, payload):
 
     # Filter payload variables
     filtered_variables = {}
-    for var_name, var_data in payload["variables"].items():
+    for var_name, var_data in payload.variables.items():
         if var_name in allowed_variables:
             filtered_variables[var_name] = var_data
         else:
-            print(f"Removing invalid variable: {var_name}")
+            app_logger.warning(f"Removing invalid variable: {var_name}")
 
-    # Update payload with filtered variables
-    filtered_payload = payload.copy()
-    filtered_payload["variables"] = filtered_variables
+    # Create new payload with filtered variables
+    filtered_payload = HeyGenPayload(
+        test=payload.test,
+        caption=payload.caption,
+        title=payload.title,
+        variables=filtered_variables,
+    )
 
     return filtered_payload

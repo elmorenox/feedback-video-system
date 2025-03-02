@@ -15,7 +15,8 @@ async def create_video(
     db: Session = Depends(get_sqlite_db)
 ):
     video: Video = await video_handler.create(
-        request.student_deployment_id, db
+        request.student_deployment_id,
+        db
     )
     return VideoResponse(
         data=VideoData.from_orm(video)

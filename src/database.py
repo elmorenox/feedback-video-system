@@ -55,8 +55,13 @@ mysql_url_with_ssh = build_mysql_connection_string_with_ssh(
 )
 
 # Create SQLAlchemy engine for MySQL
-mysql_engine = create_engine(mysql_url_with_ssh)
-SessionLocalMySQL = sessionmaker(autocommit=False, autoflush=False, bind=mysql_engine)
+mysql_engine = create_engine(
+    mysql_url_with_ssh,
+    execution_options={"readonly": True}
+)
+SessionLocalMySQL = sessionmaker(
+    autocommit=False, autoflush=False, bind=mysql_engine
+)
 
 
 # Dependency to get SQLite DB session

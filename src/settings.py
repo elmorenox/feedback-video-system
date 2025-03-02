@@ -22,6 +22,7 @@ class Settings(BaseSettings):
 
     # HeyGen
     HEYGEN_API_KEY: str
+    HEYGEN_TEMPLATE_ID: str
 
     # Descript
     DESCRIPT_API_KEY: str

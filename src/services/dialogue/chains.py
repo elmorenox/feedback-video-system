@@ -23,9 +23,16 @@ def create_script_chain() -> LLMChain:
     app_logger.debug("Returning LLMChain")
     return LLMChain(
         llm=chat,
-        prompt=ChatPromptTemplate.from_messages([
-            ("system", "You are a script generator for educational feedback videos."),
-            ("human", "{prompt}"),
-            ("human", "{grading_data}")
-        ])
+        prompt=ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    "You are a script generator for educational feedback videos.",
+                ),
+                ("human", "{prompt}"),
+                ("human", "{components_summary}"),
+                ("human", "{grading_data}"),
+                ("human", "{cohort_comparison}"),
+            ]
+        ),
     )

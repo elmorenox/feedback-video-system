@@ -14,12 +14,12 @@ from src.api.dependencies.db import (
     calculate_percentile_metrics,
 )
 from src.services.dialogue.script import generate as generate_script
-from src.schema.video import StudentDeploymentDetails
+from src.schema.video import StudentDeploymentDetails, VideoData
 from src.settings import settings
 from src.logging_config import app_logger
 
 
-async def create(deployment_id: int, db: Session) -> Video:
+async def create(deployment_id: int, db: Session) -> VideoData:
     """
     Create a video for a deployment, handling script generation and HeyGen submission
     """

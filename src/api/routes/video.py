@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from src.database import get_sqlite_db
 from src.models.video import Video
-from src.schema.video import CreateVideoRequest, VideoResponseData, VideoResponse
+from src.schema.video import CreateVideoRequest, VideoData, VideoResponse
 from src.services.dialogue import video as video_handler
 
 router = APIRouter(prefix="/videos")
@@ -18,7 +18,7 @@ async def create_video(
         request.student_deployment_id, db
     )
     return VideoResponse(
-        data=VideoResponseData.from_orm(video)
+        data=VideoData.from_orm(video)
     )
 
 

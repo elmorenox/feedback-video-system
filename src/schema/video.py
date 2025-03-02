@@ -166,7 +166,7 @@ class CreateVideoRequest(BaseModel):
     student_deployment_id: int
 
 
-class VideoResponseData(DBModelBase):
+class VideoData(DBModelBase):
     student_deployment_id: int
     script_id: UUID
     status: str
@@ -177,5 +177,5 @@ class VideoResponseData(DBModelBase):
         from_attributes = True  # Enable ORM mode
 
 
-class VideoResponse(BaseResponse[VideoResponseData]):
+class VideoResponse(BaseResponse[VideoData]):
     pass

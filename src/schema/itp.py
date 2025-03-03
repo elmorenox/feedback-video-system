@@ -1,7 +1,10 @@
 # src/schema/itp.py
 from datetime import date
-from typing import List, Optional
+from typing import Dict, List, Optional
 from pydantic import BaseModel
+
+# TODO: Figure out proper ScriptPrompData attributes and ordering.
+# TODO: StudentDeploymentDetails may need to be simplified. Or it may be uneccessary abstaction
 
 
 # Summary Models
@@ -21,7 +24,6 @@ class StudentComponentSummary(BaseModel):
 # Student Info Models
 class Student(BaseModel):
     """Student information"""
-    id: int
     first_name: str
     last_name: str
     email: str
@@ -49,11 +51,12 @@ class Cohort(BaseModel):
 
 # Deployment Package Models (Template information)
 class DeploymentPackage(BaseModel):
-    """Information about the deployment package template"""
+    """Information about the deployment package"""
     id: int
     name: str
     notes: Optional[str] = None
     objectives: Optional[str] = None
+    prompt: Optional[str] = None
 
     class Config:
         orm_mode = True
@@ -120,13 +123,22 @@ class StudentDeployment(BaseModel):
     model_config = {"from_attributes": True}
 
     @property
-    def components_summary(self) -> List[StudentComponentSummary]:
-        """Get summaries of all components"""
-        return [component.summary for component in self.components]
+    def components_summary(self) -> Dict[str, StudentComponentSummary]:
+        """Get summaries of all components as a dictionary."""
+        return {
+            component.component_category: component.summary
+            for component in self.components
+        }
 
 
 class StudentDeploymentDetails(BaseModel):
     """Comprehensive details about a student's deployment with related data"""
+    # Basic student info
+    student: Student
+
+    # Cohort info
+    cohort: Cohort
+
     # Basic deployment info
     deployment: StudentDeployment
 
@@ -155,6 +167,7 @@ class ScriptPromptData(BaseModel):
     """
     deployment_details: StudentDeploymentDetails
     cohort_comparison: Optional[CohortComparison] = None
+    components_summary: Optional[List]
 
     def get_simple_components_text(self) -> str:
         """Return components as formatted text"""

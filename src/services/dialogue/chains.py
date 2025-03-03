@@ -18,9 +18,7 @@ def create_chat_model() -> ChatOpenAI:
 
 def create_script_chain() -> LLMChain:
     """Create chain for script generation"""
-    app_logger.debug("Creating ")
     chat: ChatOpenAI = create_chat_model()
-    app_logger.debug("Returning LLMChain")
     return LLMChain(
         llm=chat,
         prompt=ChatPromptTemplate.from_messages(
@@ -30,9 +28,6 @@ def create_script_chain() -> LLMChain:
                     "You are a script generator for educational feedback videos.",
                 ),
                 ("human", "{prompt}"),
-                ("human", "{components_summary}"),
-                ("human", "{grading_data}"),
-                ("human", "{cohort_comparison}"),
             ]
         ),
     )

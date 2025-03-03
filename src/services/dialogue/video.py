@@ -1,6 +1,7 @@
 # src/services/dialogue/video.py
 import json
 from typing import Any, Dict, Optional, List
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from uuid import UUID
 
@@ -14,14 +15,16 @@ from src.services.dialogue.script import generate as generate_script
 from src.schema.itp import (
     CohortComparison,
     ScriptPromptData,
-    StudentDeploymentDetails
+    StudentDeploymentDetails,
 )
 from src.schema.video import (
     HeyGenVariable,
     HeyGenPayload,
     HeyGenVariableProperties,
-    VideoData
+    VideoData,
+    VideoStatus,
 )
+from src.models.video import DeploymentPackageExt
 from src.settings import settings
 from src.logging_config import app_logger
 
@@ -34,7 +37,8 @@ async def create(student_deployment_id: int, db: Session) -> VideoData:
     """
 
     script_prompt_data: ScriptPromptData = get_script_prompt_data(
-        student_deployment_id
+        student_deployment_id,
+        db
     )
 
     app_logger.debug("Script prompt data retrieved")
@@ -50,7 +54,7 @@ async def create(student_deployment_id: int, db: Session) -> VideoData:
     video: Video = Video(
         student_deployment_id=script_prompt_data.deployment_details.deployment.id,
         script_id=script.id,
-        status="processing"
+        status=VideoStatus.NOT_SUBMITTED,
     )
     db.add(video)
     db.commit()
@@ -73,7 +77,8 @@ async def create(student_deployment_id: int, db: Session) -> VideoData:
 
 
 def get_script_prompt_data(
-    student_deployment_id: int, include_cohort_comparison: bool = True
+    student_deployment_id: int,
+    db: Session,
 ) -> Optional[ScriptPromptData]:
     """
     Get complete data needed for script generation.
@@ -86,11 +91,6 @@ def get_script_prompt_data(
     Returns:
         ScriptPromptData model or None if not found
     """
-    # Get cohort information
-    cohort = select_cohort(student_deployment_id=student_deployment_id)
-    if not cohort:
-        return None
-
     # Get complete deployment details
     student_deployment_details: StudentDeploymentDetails = select_student_deployment_details(
         student_deployment_id
@@ -101,12 +101,11 @@ def get_script_prompt_data(
     # Get cohort comparison if requested
     cohort_comparison = None
     if (
-        include_cohort_comparison
-        and student_deployment_details.deployment.acc_score is not None
+        student_deployment_details.deployment.acc_score is not None
     ):
         # Get cohort scores
         cohort_scores = select_cohort_scores(
-            cohort_id=cohort.id,
+            cohort_id=student_deployment_details.cohort.id,
             package_id=student_deployment_details.deployment.package_id
         )
 
@@ -115,10 +114,30 @@ def get_script_prompt_data(
             student_deployment_details.deployment.acc_score, cohort_scores
         )
 
+    components_summary = [
+        {
+            "component_category": component.component_category,
+            "score": component.score,
+            "steps": [
+                {"step_name": step.step_name, "score": step.score}
+                for step in component.steps
+            ],
+        }
+        for component in student_deployment_details.deployment.components
+    ]
+
+    stmt = select(DeploymentPackageExt).where(
+        DeploymentPackageExt.deployment_package_id == student_deployment_details.deployment.package_id
+    )
+    deployment_package: DeploymentPackageExt = db.execute(stmt).scalar_one()
+
+    student_deployment_details.package.prompt = deployment_package.prompt_template
+
     # Create comprehensive data model
     return ScriptPromptData(
         deployment_details=student_deployment_details,
         cohort_comparison=cohort_comparison,
+        components_summary=components_summary
     )
 
 
@@ -176,158 +195,6 @@ def calculate_cohort_comparison(
         percentile=round(percentile, 1),
         rank=rank,
     )
-
-
-def build_heygen_payload(
-    student_data: StudentDeploymentDetails,
-    script_data: Dict[str, Dict[str, str]],
-    cohort_data: CohortComparison,
-    test_mode: bool = True,
-) -> HeyGenPayload:
-    """
-    Build the HeyGen API payload for video generation.
-
-    Args:
-        student_data: StudentDeployment with all student information
-        script_data: Nested dictionary containing scene data
-        cohort_data: CohortComparisonData with percentile information
-        test_mode: Whether to run in test mode (default: True)
-
-    Returns:
-        HeyGenPayload object with complete API payload
-    """
-    # Format components and steps summary as text
-    components_summary = student_data.get_simple_components_text()
-    steps_summary = student_data.get_top_and_bottom_steps_text()
-
-    # Create variables dictionary
-    variables = {}
-
-    # Add student info variables
-    variables.update(_create_student_variables(student_data))
-
-    # Add deployment info variables
-    variables.update(_create_deployment_variables(student_data))
-
-    # Add score info variables
-    variables.update(_create_score_variables(student_data, cohort_data))
-
-    # Add summary variables
-    variables.update(
-        {
-            "components_summary": HeyGenVariable(
-                name="components_summary",
-                properties=HeyGenVariableProperties(content=components_summary),
-            ),
-            "steps_summary": HeyGenVariable(
-                name="steps_summary",
-                properties=HeyGenVariableProperties(content=steps_summary),
-            ),
-        }
-    )
-
-    # Add script variables
-    variables.update(_create_script_variables(script_data))
-
-    # Create the complete payload
-    payload = HeyGenPayload(
-        test=test_mode,
-        caption=False,
-        title=f"{student_data.first_name} {student_data.last_name} - {student_data.deployment_package.name} Feedback",
-        variables=variables,
-    )
-
-    app_logger.debug("HeyGen payload created")
-
-    return payload
-
-
-def _create_student_variables(
-    student_data: StudentDeploymentDetails,
-) -> Dict[str, HeyGenVariable]:
-    """Create HeyGen variables for student information"""
-    return {
-        "first_name": HeyGenVariable(
-            name="first_name",
-            properties=HeyGenVariableProperties(content=student_data.first_name),
-        ),
-        "last_name": HeyGenVariable(
-            name="last_name",
-            properties=HeyGenVariableProperties(content=student_data.last_name),
-        ),
-        "cohort_name": HeyGenVariable(
-            name="cohort_name",
-            properties=HeyGenVariableProperties(content=student_data.cohort_name),
-        ),
-    }
-
-
-def _create_deployment_variables(
-    student_data: StudentDeploymentDetails,
-) -> Dict[str, HeyGenVariable]:
-    """Create HeyGen variables for deployment information"""
-    return {
-        "deployment_package_name": HeyGenVariable(
-            name="deployment_package_name",
-            properties=HeyGenVariableProperties(
-                content=student_data.deployment_package.name
-            ),
-        ),
-        "deployment_package_objectives": HeyGenVariable(
-            name="deployment_package_objectives",
-            properties=HeyGenVariableProperties(
-                content=student_data.deployment_package.objectives
-                or "No objectives provided"
-            ),
-        ),
-    }
-
-
-def _create_score_variables(
-    student_data: StudentDeploymentDetails, cohort_data: CohortComparison
-) -> Dict[str, HeyGenVariable]:
-    """Create HeyGen variables for score information"""
-    return {
-        "acc_score": HeyGenVariable(
-            name="acc_score",
-            properties=HeyGenVariableProperties(
-                content=(
-                    str(student_data.acc_score)
-                    if student_data.acc_score is not None
-                    else "N/A"
-                )
-            ),
-        ),
-        "cohort_percentile": HeyGenVariable(
-            name="cohort_percentile",
-            properties=HeyGenVariableProperties(
-                content=cohort_data.formatted_percentile
-            ),
-        ),
-        "cohort_avg_acc_score": HeyGenVariable(
-            name="cohort_avg_acc_score",
-            properties=HeyGenVariableProperties(
-                content=str(cohort_data.cohort_avg_acc_score or "N/A")
-            ),
-        ),
-    }
-
-
-def _create_script_variables(script_data: Dict) -> Dict[str, HeyGenVariable]:
-    """Create HeyGen variables from script data"""
-    variables = {}
-
-    # Extract and add all scene scripts and titles from the nested script_data
-    for scene_number, scene_content in json.loads(script_data).items():
-        for key, value in scene_content.items():
-            if key.startswith("scene_") and (
-                key.endswith("_script") or key.endswith("_title")
-            ):
-                variables[key] = HeyGenVariable(
-                    name=key, properties=HeyGenVariableProperties(content=value)
-                )
-
-    return variables
 
 
 async def submit_to_heygen(
@@ -401,36 +268,3 @@ async def submit_to_heygen(
             "video_id": heygen_video_id,
             "response": response_data,
         }
-
-
-def filter_heygen_variables(template_info, payload: HeyGenPayload) -> HeyGenPayload:
-    """
-    Filter payload variables to only include those defined in the HeyGen template.
-
-    Args:
-        template_info: Response from HeyGen template GET request
-        payload: Original payload with all variables
-
-    Returns:
-        Updated payload with only valid variables
-    """
-    # Extract allowed variable names from template info
-    allowed_variables = set(template_info.get("data", {}).get("variables", {}).keys())
-
-    # Filter payload variables
-    filtered_variables = {}
-    for var_name, var_data in payload.variables.items():
-        if var_name in allowed_variables:
-            filtered_variables[var_name] = var_data
-        else:
-            app_logger.warning(f"Removing invalid variable: {var_name}")
-
-    # Create new payload with filtered variables
-    filtered_payload = HeyGenPayload(
-        test=payload.test,
-        caption=payload.caption,
-        title=payload.title,
-        variables=filtered_variables,
-    )
-
-    return filtered_payload

@@ -9,7 +9,11 @@ from enum import Enum
 from src.schema.base import BaseResponse
 
 
-class HeyGenStatus(str, Enum):
+class VideoStatus(str, Enum):
+    # Status that HeyGen provides
+    # Not submitted is not a HeyGen status,
+    # but a status we use to indicate that the video has not been submitted.
+    NOT_SUBMITTED = "not_submitted"
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"

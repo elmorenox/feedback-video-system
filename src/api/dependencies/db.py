@@ -346,6 +346,7 @@ def select_deployment_components(
 def select_student_deployment_details(deployment_id: int, to_pydantic: bool = True):
     """
     Fetch student deployment details from the database using SQLAlchemy ORM and MySQL JSON functions.
+    Structures the result to match the StudentDeploymentDetails Pydantic model.
 
     Args:
         deployment_id (int): The ID of the deployment to fetch details for.
@@ -356,7 +357,7 @@ def select_student_deployment_details(deployment_id: int, to_pydantic: bool = Tr
     """
     db = next(get_mysql_db())
 
-    # Aliases for tables
+    # Aliases for tables (same as before)
     s = aliased(ORMStudent)
     c = aliased(ORMCohort)
     d = aliased(ORMStudentDeployment)
@@ -366,17 +367,21 @@ def select_student_deployment_details(deployment_id: int, to_pydantic: bool = Tr
     dps = aliased(ORMDeploymentPackageStep)
     dp = aliased(ORMDeploymentPackage)
 
-    # Construct the query
-    query = (
+    # The query implementation is the same as before
+    # Construct the inner query for components and steps
+    components_subquery = (
         select(
+            # Student and cohort fields
             s.first_name,
             s.last_name,
             s.email,
             s.tech_experience_id,
             s.employment_status_id,
+            c.id.label("cohort_id"),
             c.name.label("cohort_name"),
             c.start_date.label("cohort_start_date"),
             c.end_date.label("cohort_end_date"),
+            # Deployment fields
             d.id.label("deployment_id"),
             d.start_date.label("deployment_start_date"),
             d.end_date.label("deployment_end_date"),
@@ -389,57 +394,50 @@ def select_student_deployment_details(deployment_id: int, to_pydantic: bool = Tr
             d.func_grading,
             d.func_score,
             d.deployment_package_id,
-            func.json_unquote(
-                func.json_extract(
+            # Component fields
+            comp.id.label("component_id"),
+            func.json_object(
+                "id",
+                comp.id,
+                "component_category",
+                comp.title,
+                "description",
+                comp.description,
+                "grading",
+                dc.grading,
+                "score",
+                dc.score,
+                "steps",
+                func.json_arrayagg(
                     func.json_object(
-                        "id",
-                        comp.id,
-                        "component_category",
-                        comp.title,
-                        "description",
-                        comp.description,
+                        "step_name",
+                        dps.component_name,
                         "grading",
-                        dc.grading,
+                        ds.grading,
                         "score",
-                        dc.score,
-                        "steps",
-                        func.json_arrayagg(
-                            func.json_object(
-                                "step_name",
-                                dps.component_name,
-                                "grading",
-                                ds.grading,
-                                "score",
-                                ds.score,
-                                "objectives",
-                                ds.objectives,
-                                "instructions",
-                                ds.instructions,
-                                "deployment_component_id",
-                                ds.student_deployment_component_id,
-                                "component_category",
-                                dps.component_category,
-                            )
-                        ),
-                    ),
-                    "$",
-                )
-            ).label("component_data"),
-            func.json_unquote(
-                func.json_extract(
-                    func.json_object(
-                        "id",
-                        dp.id,
-                        "name",
-                        dp.name,
-                        "notes",
-                        dp.notes,
+                        ds.score,
                         "objectives",
-                        dp.objectives,
-                    ),
-                    "$",
-                )
-            ).label("deployment_package_data"),
+                        ds.objectives,
+                        "instructions",
+                        ds.instructions,
+                        "deployment_component_id",
+                        ds.student_deployment_component_id,
+                        "component_category",
+                        dps.component_category,
+                    )
+                ),
+            ).label("component_json"),
+            # Package fields
+            func.json_object(
+                "id",
+                dp.id,
+                "name",
+                dp.name,
+                "notes",
+                dp.notes,
+                "objectives",
+                dp.objectives,
+            ).label("deployment_package_json"),
         )
         .select_from(s)
         .join(c, s.cohort_id == c.id)
@@ -458,25 +456,62 @@ def select_student_deployment_details(deployment_id: int, to_pydantic: bool = Tr
         )
         .outerjoin(dp, d.deployment_package_id == dp.id)
         .where(d.id == deployment_id)
-        .group_by(comp.id)  # Group by component to aggregate steps
+        .group_by(comp.id)  # Group steps by component
+    ).subquery()
+
+    # Outer query to aggregate components
+    outer_query = select(
+        components_subquery.c.first_name,
+        components_subquery.c.last_name,
+        components_subquery.c.email,
+        components_subquery.c.tech_experience_id,
+        components_subquery.c.employment_status_id,
+        components_subquery.c.cohort_id,
+        components_subquery.c.cohort_name,
+        components_subquery.c.cohort_start_date,
+        components_subquery.c.cohort_end_date,
+        components_subquery.c.deployment_id,
+        components_subquery.c.deployment_start_date,
+        components_subquery.c.deployment_end_date,
+        components_subquery.c.acc_grading,
+        components_subquery.c.acc_score,
+        components_subquery.c.otd_grading,
+        components_subquery.c.otd_score,
+        components_subquery.c.opt_grading,
+        components_subquery.c.opt_score,
+        components_subquery.c.func_grading,
+        components_subquery.c.func_score,
+        components_subquery.c.deployment_package_id,
+        func.json_arrayagg(
+            components_subquery.c.component_json
+        ).label("components_data"),
+        components_subquery.c.deployment_package_json.label("deployment_package_data"),
+    ).group_by(
+        components_subquery.c.deployment_id, components_subquery.c.deployment_package_id
     )
 
     # Execute the query
-    result = db.execute(query).fetchone()
+    result = db.execute(outer_query).fetchone()
 
     if not result:
         return None
 
-    # Parse the result into a dictionary
     result_dict = {
-        "first_name": result.first_name,
-        "last_name": result.last_name,
-        "email": result.email,
-        "tech_experience_id": result.tech_experience_id,
-        "employment_status_id": result.employment_status_id,
-        "cohort_name": result.cohort_name,
-        "cohort_start_date": result.cohort_start_date,
-        "cohort_end_date": result.cohort_end_date,
+        "student": {
+            "first_name": result.first_name,
+            "last_name": result.last_name,
+            "email": result.email,
+            "tech_experience_id": result.tech_experience_id,
+            "employment_status_id": result.employment_status_id,
+        },
+        # Cohort info nested
+        "cohort": {
+            "id": result.cohort_id,
+            "name": result.cohort_name,
+            "start_date": result.cohort_start_date,
+            "end_date": result.cohort_end_date,
+        },
+        # Nested deployment structure - this matches what your model expects
         "deployment": {
             "id": result.deployment_id,
             "start_date": result.deployment_start_date,
@@ -490,12 +525,9 @@ def select_student_deployment_details(deployment_id: int, to_pydantic: bool = Tr
             "func_grading": result.func_grading,
             "func_score": result.func_score,
             "package_id": result.deployment_package_id,
-            # Wrap the single component in a list
-            "components": (
-                [json.loads(result.component_data)] if result.component_data else []
-            ),
+            "components": json.loads(result.components_data),
         },
-        # Parse the JSON string into a Python dict
+        # Package info
         "package": json.loads(result.deployment_package_data),
     }
 

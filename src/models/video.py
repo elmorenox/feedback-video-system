@@ -2,11 +2,13 @@
 from enum import Enum
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Integer, String, JSON, ForeignKey
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, JSON, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 
 from src.database import Base
 from src.models.base import BaseMixin
+from src.schema.video import HeyGenStatus
 
 
 class ScriptStatus(str, Enum):
@@ -17,25 +19,33 @@ class ScriptStatus(str, Enum):
 
 class DeploymentPackageExt(Base):
     """
-    Temporary storage of deployment package prompt data until MySQL migration
+    Extends deployment packages from MySQL with additional fields in SQLite
     """
+
     __tablename__ = "deployment_package_extensions"
 
-    deployment_package_id = Column(Integer, unique=True, nullable=False, primary_key=True)
+    deployment_package_id = Column(
+        Integer, unique=True, nullable=False, primary_key=True
+    )
+    heygen_template_id = Column(
+        Integer, ForeignKey("heygen_templates.id"), nullable=True
+    )
     prompt_template = Column(String, nullable=False)
     created_on = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_on = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_on = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    # Relationship to the local SQLite table
+    heygen_template = relationship("HeyGenTemplate", backref="package_extensions")
 
 
 class Script(Base, BaseMixin):
     __tablename__ = "scripts"
 
     student_deployment_id = Column(Integer, unique=True, nullable=False)
-    raw_llm_response = Column(String, nullable=True)
-    content = Column(String, nullable=True)
-    scene_dialogue = Column(JSON, nullable=True)
-    variables = Column(JSON, nullable=True)
     prompt_used = Column(String, nullable=False)
+    scene_dialogue = Column(JSON, nullable=False)
     status = Column(String, nullable=False, default=ScriptStatus.PENDING)
 
 
@@ -46,4 +56,14 @@ class Video(Base, BaseMixin):
     script_id = Column(UUID(as_uuid=True), ForeignKey("scripts.id"), nullable=False)
     heygen_video_id = Column(String, nullable=True)
     video_url = Column(String, nullable=True)
-    status = Column(String, nullable=False, default="pending")
+    status = Column(String, nullable=False, default=HeyGenStatus.PENDING)
+
+
+class HeyGenTemplate(Base, BaseMixin):
+    __tablename__ = "heygen_templates"
+
+    template_id = Column(String, nullable=False, comment="HeyGen API template ID")
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+    variable_mappings = Column(JSON, nullable=True, default=lambda: {"mappings": []})

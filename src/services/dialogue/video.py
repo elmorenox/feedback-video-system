@@ -25,6 +25,8 @@ from src.schema.video import (
 from src.settings import settings
 from src.logging_config import app_logger
 
+import httpx
+
 
 async def create(student_deployment_id: int, db: Session) -> VideoData:
     """
@@ -333,11 +335,8 @@ async def submit_to_heygen(
     student_deployment_details: StudentDeploymentDetails,
     script_data: Dict,
     cohort_data: CohortComparison,
-    api_key: str,
-    video_id: UUID,
 ) -> Dict[str, Any]:
     """Submit a video generation request to HeyGen with template validation."""
-    import httpx
 
     # Build initial payload
     payload = build_heygen_payload(
@@ -346,8 +345,10 @@ async def submit_to_heygen(
         cohort_data=cohort_data,
     )
 
-    # Fetch template info to get allowed variables
-    headers = {"X-Api-Key": api_key, "Content-Type": "application/json"}
+    headers = {
+        "X-Api-Key": settings.HEYGEN_API_KEY,
+        "Content-Type": "application/json"
+    }
 
     async with httpx.AsyncClient() as client:
         # Get template info

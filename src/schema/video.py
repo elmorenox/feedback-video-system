@@ -1,10 +1,19 @@
 # src/schema/video.py
+from typing import Any, Dict
 from datetime import datetime
 from uuid import UUID
 from typing import Optional
 from pydantic import BaseModel
+from enum import Enum
 
 from src.schema.base import BaseResponse
+
+
+class HeyGenStatus(str, Enum):
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    PENDING = "pending"
 
 
 # Base Models for API Responses
@@ -39,13 +48,31 @@ class VideoResponse(BaseResponse[VideoData]):
     pass
 
 
+class HeyGenVariableProperties(BaseModel):
+    content: str
+
+
 class HeyGenVariable(BaseModel):
-    pass
+    name: str
+    type: str = "text"
+    properties: HeyGenVariableProperties
 
 
 class HeyGenPayload(BaseModel):
-    pass
+    test: bool = True
+    caption: bool = False
+    title: str
+    variables: Dict[str, HeyGenVariable]
 
 
-class HeyGenVariableProperties(BaseModel):
-    pass
+class HeyGenResponseData(BaseModel):
+    success: bool
+    video_id: Optional[str] = None
+    status: Optional[str] = None
+    video_url: Optional[str] = None
+    created_at: Optional[int] = None
+    error: Optional[str] = None
+    response: Optional[Dict[str, Any]] = None
+
+    class Config:
+        extra = "allow"

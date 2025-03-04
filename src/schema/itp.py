@@ -179,7 +179,7 @@ class ScriptPromptData(BaseModel):
             self.components_summary
         ):
             score = comp["score"] if comp["score"] is not None else "N/A"
-            lines.append(f"• {comp['component_category']}: {score}")
+            lines.append(f"• {comp['component_category']} {score}")
         return "\n".join(lines)
 
     def get_simple_steps_text(self) -> str:

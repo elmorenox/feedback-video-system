@@ -8,7 +8,7 @@ from sqlalchemy.orm import relationship
 
 from src.database import Base
 from src.models.base import BaseMixin
-from src.schema.video import HeyGenStatus
+from src.schema.video import VideoStatus
 
 
 class ScriptStatus(str, Enum):
@@ -49,6 +49,7 @@ class Script(Base, BaseMixin):
     status = Column(String, nullable=False, default=ScriptStatus.PENDING)
 
 
+# TODO: Add heygen submission date to video
 class Video(Base, BaseMixin):
     __tablename__ = "videos"
 
@@ -56,7 +57,7 @@ class Video(Base, BaseMixin):
     script_id = Column(UUID(as_uuid=True), ForeignKey("scripts.id"), nullable=False)
     heygen_video_id = Column(String, nullable=True)
     video_url = Column(String, nullable=True)
-    status = Column(String, nullable=False, default=HeyGenStatus.PENDING)
+    status = Column(String, nullable=False, default=VideoStatus.PENDING)
 
 
 class HeyGenTemplate(Base, BaseMixin):

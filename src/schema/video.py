@@ -37,15 +37,29 @@ class CreateVideoRequest(BaseModel):
     student_deployment_id: int
 
 
+class HeyGenResponseData(BaseModel):
+    success: bool
+    video_id: Optional[str] = None
+    status: Optional[str] = None
+    video_url: Optional[str] = None
+    created_at: Optional[int] = None
+    error: Optional[str] = None
+    response: Optional[Dict[str, Any]] = None
+
+    class Config:
+        extra = "allow"
+
+
 class VideoData(DBModelBase):
     student_deployment_id: int
     script_id: UUID
-    status: str
+    status: VideoStatus
     heygen_video_id: Optional[str] = None
     video_url: Optional[str] = None
+    heygen_response: Optional[HeyGenResponseData] = None
 
     class Config:
-        from_attributes = True  # Enable ORM mode
+        from_attributes = True
 
 
 class VideoResponse(BaseResponse[VideoData]):
@@ -69,14 +83,12 @@ class HeyGenPayload(BaseModel):
     variables: Dict[str, HeyGenVariable]
 
 
-class HeyGenResponseData(BaseModel):
-    success: bool
-    video_id: Optional[str] = None
-    status: Optional[str] = None
-    video_url: Optional[str] = None
-    created_at: Optional[int] = None
-    error: Optional[str] = None
-    response: Optional[Dict[str, Any]] = None
+class VideoDimension(BaseModel):
+    width: int
+    height: int
 
-    class Config:
-        extra = "allow"
+
+# Create a dimensions enum. 1080 and 720 are the only supported dimensions. Need both lenght and width.
+class VideoDimensions(str, Enum):
+    HD = "1080p"
+    SD = "720p"

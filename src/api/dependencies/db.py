@@ -329,6 +329,7 @@ def select_deployment_components(
                 if package_step:
                     step_model = StudentDeploymentStep(
                         grading=step.grading,
+                        grading_data=step.grading_data,
                         score=step.score,
                         objectives=step.objectives,
                         instructions=step.instructions,
@@ -414,6 +415,8 @@ def select_student_deployment_details(deployment_id: int, to_pydantic: bool = Tr
                         dps.component_name,
                         "grading",
                         ds.grading,
+                        "grading_data",
+                        ds.grading_data,
                         "score",
                         ds.score,
                         "objectives",

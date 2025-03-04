@@ -66,6 +66,7 @@ class DeploymentPackage(BaseModel):
 class StudentDeploymentStep(StudentStepSummary):
     """Details of a student's performance on a specific deployment step"""
     grading: Optional[str] = None
+    grading_data: Optional[str] = None
     objectives: Optional[str] = None
     instructions: Optional[str] = None
     deployment_component_id: Optional[int] = None
@@ -172,18 +173,26 @@ class ScriptPromptData(BaseModel):
     def get_simple_components_text(self) -> str:
         """Return components as formatted text"""
         lines = []
-        for comp in self.deployment_details.components_summary:
-            score = comp.score if comp.score is not None else "N/A"
-            lines.append(f"• {comp.component_category}: {score}")
+        for (
+            comp
+        ) in (
+            self.components_summary
+        ):
+            score = comp["score"] if comp["score"] is not None else "N/A"
+            lines.append(f"• {comp['component_category']}: {score}")
         return "\n".join(lines)
 
     def get_simple_steps_text(self) -> str:
         """Return steps as formatted text"""
         lines = []
-        for comp in self.deployment_details.components_summary:
-            for step in comp.steps:
-                score = step.score if step.score is not None else "N/A"
-                lines.append(f"  • {step.step_name}: {score}")
+        for (
+            comp
+        ) in (
+            self.components_summary
+        ):  # Changed from self.deployment_details.components_summary
+            for step in comp["steps"]:
+                score = step["score"] if step["score"] is not None else "N/A"
+                lines.append(f"  • {step['step_name']}: {score}")
             lines.append("")
         return "\n".join(lines)
 
@@ -200,12 +209,16 @@ class ScriptPromptData(BaseModel):
         """
         # Extract all steps and their scores
         all_steps = []
-        for comp in self.deployment_details.components_summary:
-            for step in comp.steps:
+        for (
+            comp
+        ) in (
+            self.components_summary
+        ):
+            for step in comp["steps"]:
                 all_steps.append(
                     (
-                        step.step_name,
-                        step.score if step.score is not None else float("-inf"),
+                        step["step_name"],
+                        step["score"] if step["score"] is not None else float("-inf"),
                     )
                 )
 
@@ -220,14 +233,10 @@ class ScriptPromptData(BaseModel):
         lines = []
         lines.append("High Scoring Steps:")
         for step_name, score in top_steps:
-            lines.append(
-                f"  • {step_name}: {score if score != float('-inf') else 'N/A'}"
-            )
+            lines.append(f"  • {step_name}: {score if score != float('-inf') else 'N/A'}")
 
         lines.append("\nLow Scoring Steps:")
         for step_name, score in bottom_steps:
-            lines.append(
-                f"  • {step_name}: {score if score != float('-inf') else 'N/A'}"
-            )
+            lines.append(f"  • {step_name}: {score if score != float('-inf') else 'N/A'}")
 
         return "\n".join(lines)

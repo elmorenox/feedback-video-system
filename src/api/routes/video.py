@@ -1,4 +1,6 @@
 # src/api/routes/video.py
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from src.database import get_sqlite_db
@@ -25,7 +27,7 @@ async def create_video(
 
 @router.get("/{video_id}", response_model=VideoResponse)
 async def get_video_status(
-    video_id: str,
+    video_id: uuid.UUID,
     db: Session = Depends(get_sqlite_db)
 ):
     video_data = await video_handler.get(video_id, db)

@@ -3,6 +3,8 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # FastAPI
+    ENVIRONMENT: str
+
     SECRET_KEY: str
     API_VERSION: str
     DEBUG: bool = False

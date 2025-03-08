@@ -21,7 +21,7 @@ async def create_video(
         db
     )
     return VideoResponse(
-        data=VideoData.from_orm(video)
+        data=VideoData.model_validate(video)
     )
 
 

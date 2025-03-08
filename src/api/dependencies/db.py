@@ -1,10 +1,10 @@
 # src/api/dependencies/db.py
 import json
 
-from typing import List, Optional, Union
+from typing import List, Union
 from sqlalchemy import select, func
 from sqlalchemy.engine import Row
-from sqlalchemy.orm import aliased, joinedload
+from sqlalchemy.orm import aliased
 from sqlalchemy.sql import Select
 from src.models.video import DeploymentPackageExt
 from src.models.itp import (
@@ -22,9 +22,6 @@ from src.schema.itp import (
     Cohort,
     DeploymentPackage,
     StudentDeployment,
-    StudentDeploymentDetails,
-    StudentDeploymentComponent,
-    StudentDeploymentStep,
 )
 from src.database import get_mysql_db
 from src.logging_config import app_logger
@@ -58,7 +55,8 @@ def select_student(
 
     if student_deployment_id:
         query = query.join(
-            ORMStudentDeployment, ORMStudent.id == ORMStudentDeployment.student_id
+            ORMStudentDeployment,
+            ORMStudent.id == ORMStudentDeployment.student_id
         ).where(ORMStudentDeployment.id == student_deployment_id)
     else:
         query = query.where(ORMStudent.id == student_id)
@@ -79,7 +77,7 @@ def select_student(
         return result
 
     # Convert to Pydantic model
-    return Student.from_orm(result)
+    return Student.model_validate(result)
 
 
 def select_cohort(
@@ -124,7 +122,8 @@ def select_cohort(
             query.join(ORMStudent, ORMCohort.id == ORMStudent.cohort_id)
             .join
             (
-                ORMStudentDeployment, ORMStudent.id == ORMStudentDeployment.student_id
+                ORMStudentDeployment,
+                ORMStudent.id == ORMStudentDeployment.student_id
             )
             .where(ORMStudentDeployment.id == student_deployment_id)
         )
@@ -145,7 +144,7 @@ def select_cohort(
         return result
 
     # Convert to Pydantic model
-    return Cohort.from_orm(result)
+    return Cohort.model_validate(result)
 
 
 def select_deployment_package(
@@ -165,7 +164,11 @@ def select_deployment_package(
         SQLAlchemy Select object if execute=False
     """
     # Build the query
-    query = select(ORMDeploymentPackage).where(ORMDeploymentPackage.id == package_id)
+    query = select(
+        ORMDeploymentPackage
+        ).where(
+            ORMDeploymentPackage.id == package_id
+        )
 
     # Return query if not executing
     if not execute:
@@ -183,178 +186,20 @@ def select_deployment_package(
         return result
 
     # Convert to Pydantic model
-    return DeploymentPackage.from_orm(result)
+    return DeploymentPackage.model_validate(result)
 
 
-def select_student_deployment(
-    student_deployment_id: int, to_pydantic: bool = True, execute: bool = True
-) -> Union[StudentDeployment, ORMStudentDeployment, Row, Select]:
-    """
-    Fetch basic student deployment information (without components).
-
-    Args:
-        student_deployment_id: The ID of the student deployment
-        to_pydantic: If True, returns a Pydantic model
-        execute: If True, executes the query
-
-    Returns:
-        StudentDeployment Pydantic model if to_pydantic=True and execute=True
-        ORM StudentDeployment model or Row if to_pydantic=False and execute=True
-        SQLAlchemy Select object if execute=False
-    """
-    # Build the query
-    query = select(ORMStudentDeployment).where(
-        ORMStudentDeployment.id == student_deployment_id
-    )
-
-    # Return query if not executing
-    if not execute:
-        return query
-
-    # Execute the query
-    db = next(get_mysql_db())
-    result = db.execute(query).scalars().first()
-
-    if not result:
-        return None
-
-    # Return ORM model if not converting to Pydantic
-    if not to_pydantic:
-        return result
-
-    # Convert to Pydantic model
-    return StudentDeployment.from_orm(result)
-
-
-def select_deployment_components(
-    student_deployment_id: int,
-    include_steps: bool = True,
-    to_pydantic: bool = True,
-    execute: bool = True,
-) -> Union[
-    List[StudentDeploymentComponent],
-    List[ORMStudentDeploymentComponent],
-    List[Row],
-    Select,
-]:
-    """
-    Fetch components for a student deployment.
-
-    Args:
-        student_deployment_id: The ID of the student deployment
-        include_steps: Whether to include steps in the query
-        to_pydantic: If True, returns Pydantic models
-        execute: If True, executes the query
-
-    Returns:
-        List of StudentDeploymentComponent Pydantic models if to_pydantic=True and execute=True
-        List of ORM StudentDeploymentComponent models or Rows if to_pydantic=False and execute=True
-        SQLAlchemy Select object if execute=False
-    """
-    # Build query for components
-    query = (
-        select(ORMStudentDeploymentComponent)
-        .join(
-            ORMDeploymentComponent,
-            ORMStudentDeploymentComponent.deployment_component_id
-            == ORMDeploymentComponent.id,
-        )
-        .where(
-            ORMStudentDeploymentComponent.student_deployment_id == student_deployment_id
-        )
-    )
-
-    # Add eager loading for steps if needed
-    if include_steps:
-        query = query.options(
-            joinedload(ORMStudentDeploymentComponent.student_deployment_steps)
-        )
-
-    # Return query if not executing
-    if not execute:
-        return query
-
-    # Execute the query
-    db = next(get_mysql_db())
-    results = db.execute(query).scalars().all()
-
-    # Return ORM models if not converting to Pydantic
-    if not to_pydantic:
-        return results
-
-    # Convert to Pydantic models
-    components = []
-    for comp_relation in results:
-        comp = comp_relation.deployment_component
-
-        # Create the component model
-        component_model = StudentDeploymentComponent(
-            id=comp.id,
-            component_category=comp.title,
-            description=comp.description,
-            grading=comp_relation.grading,
-            score=comp_relation.score,
-            steps=[],
-        )
-
-        # Add steps if needed
-        if include_steps:
-            steps_query = (
-                select(ORMStudentDeploymentStep)
-                .join(
-                    ORMDeploymentPackageStep,
-                    ORMStudentDeploymentStep.deployment_package_step_id
-                    == ORMDeploymentPackageStep.id,
-                )
-                .where(
-                    ORMStudentDeploymentStep.student_deployment_component_id
-                    == comp_relation.id
-                )
-            )
-
-            step_results = db.execute(steps_query).scalars().all()
-
-            for step in step_results:
-                package_step = (
-                    db.execute(
-                        select(ORMDeploymentPackageStep).where(
-                            ORMDeploymentPackageStep.id
-                            == step.deployment_package_step_id
-                        )
-                    )
-                    .scalars()
-                    .first()
-                )
-
-                if package_step:
-                    step_model = StudentDeploymentStep(
-                        grading=step.grading,
-                        grading_data=step.grading_data,
-                        score=step.score,
-                        objectives=step.objectives,
-                        instructions=step.instructions,
-                        deployment_component_id=comp_relation.deployment_component_id,
-                        step_name=package_step.component_name,
-                        component_category=package_step.component_category,
-                    )
-                    component_model.steps.append(step_model)
-
-        components.append(component_model)
-
-    return components
-
-
-def select_student_deployment_details(deployment_id: int, to_pydantic: bool = True):
+def select_student_deployment(student_deployment_id: int, to_pydantic: bool = True):
     """
     Fetch student deployment details from the database using SQLAlchemy ORM and MySQL JSON functions.
-    Structures the result to match the StudentDeploymentDetails Pydantic model.
+    Structures the result to match the StudentDeployment Pydantic model.
 
     Args:
         deployment_id (int): The ID of the deployment to fetch details for.
         to_pydantic (bool): If True, returns the results as a Pydantic model. If False, returns raw query results.
 
     Returns:
-        Union[StudentDeploymentDetails, dict]: The query results, either as a Pydantic model or a dictionary.
+        Union[StudentDeployment, dict]: The query results, either as a Pydantic model or a dictionary.
     """
     db = next(get_mysql_db())
 
@@ -441,6 +286,21 @@ def select_student_deployment_details(deployment_id: int, to_pydantic: bool = Tr
                 "objectives",
                 dp.objectives,
             ).label("deployment_package_json"),
+            func.json_object(
+                "component_category",
+                comp.title,
+                "score",
+                dc.score,
+                "steps",
+                func.json_arrayagg(
+                    func.json_object(
+                        "step_name",
+                        dps.component_name,
+                        "score",
+                        ds.score
+                    )
+                ),
+            ).label("component_summary_json"),
         )
         .select_from(s)
         .join(c, s.cohort_id == c.id)
@@ -458,7 +318,7 @@ def select_student_deployment_details(deployment_id: int, to_pydantic: bool = Tr
             & (ds.deployment_step_id == dps.deployment_step_id),
         )
         .outerjoin(dp, d.deployment_package_id == dp.id)
-        .where(d.id == deployment_id)
+        .where(d.id == student_deployment_id)
         .group_by(comp.id)  # Group steps by component
     ).subquery()
 
@@ -488,9 +348,15 @@ def select_student_deployment_details(deployment_id: int, to_pydantic: bool = Tr
         func.json_arrayagg(
             components_subquery.c.component_json
         ).label("components_data"),
-        components_subquery.c.deployment_package_json.label("deployment_package_data"),
+        components_subquery.c.deployment_package_json.label(
+            "deployment_package_data"
+        ),
+        func.json_arrayagg(
+            components_subquery.c.component_summary_json
+        ).label("components_summary_data"),
     ).group_by(
-        components_subquery.c.deployment_id, components_subquery.c.deployment_package_id
+        components_subquery.c.deployment_id,
+        components_subquery.c.deployment_package_id
     )
 
     # Execute the query
@@ -500,49 +366,43 @@ def select_student_deployment_details(deployment_id: int, to_pydantic: bool = Tr
         return None
 
     result_dict = {
+        # Cohort info nested
+        # Nested deployment structure - this matches what your model expects
         "student": {
             "first_name": result.first_name,
             "last_name": result.last_name,
             "email": result.email,
-            "tech_experience_id": result.tech_experience_id,
-            "employment_status_id": result.employment_status_id,
         },
-        # Cohort info nested
         "cohort": {
             "id": result.cohort_id,
             "name": result.cohort_name,
-            "start_date": result.cohort_start_date,
-            "end_date": result.cohort_end_date,
         },
-        # Nested deployment structure - this matches what your model expects
-        "deployment": {
-            "id": result.deployment_id,
-            "start_date": result.deployment_start_date,
-            "end_date": result.deployment_end_date,
-            "acc_grading": result.acc_grading,
-            "acc_score": result.acc_score,
-            "otd_grading": result.otd_grading,
-            "otd_score": result.otd_score,
-            "opt_grading": result.opt_grading,
-            "opt_score": result.opt_score,
-            "func_grading": result.func_grading,
-            "func_score": result.func_score,
-            "package_id": result.deployment_package_id,
-            "components": json.loads(result.components_data),
-        },
-        # Package info
-        "package": json.loads(result.deployment_package_data),
+        "id": result.deployment_id,
+        "acc_grading": result.acc_grading,
+        "acc_score": result.acc_score,
+        "otd_grading": result.otd_grading,
+        "otd_score": result.otd_score,
+        "opt_grading": result.opt_grading,
+        "opt_score": result.opt_score,
+        "func_grading": result.func_grading,
+        "func_score": result.func_score,
+        "components": json.loads(result.components_data),
+        "deployment_package": json.loads(result.deployment_package_data),
+        "components_summary": json.loads(result.components_summary_data),
     }
 
     if not to_pydantic:
         return result_dict
 
     # Convert to Pydantic model
-    return StudentDeploymentDetails(**result_dict)
+    return StudentDeployment(**result_dict)
 
 
 def select_cohort_scores(
-    cohort_id: int, package_id: int, to_pydantic: bool = True, execute: bool = True
+    cohort_id: int,
+    package_id: int,
+    to_pydantic: bool = True,
+    execute: bool = True,
 ) -> Union[List[float], List[ORMStudentDeployment], List[Row], Select]:
     """
     Fetch cohort scores for calculating percentile.

@@ -1,20 +1,21 @@
 # src/models/video.py
-from enum import Enum
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, JSON, ForeignKey
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Integer,
+    String,
+    JSON,
+    ForeignKey
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from src.database import Base
 from src.models.base import BaseMixin
-from src.schema.video import VideoStatus
-
-
-class ScriptStatus(str, Enum):
-    PENDING = "pending"
-    COMPLETE = "complete"
-    FAILED = "failed"
+from src.schema.video import VideoStatus, ScriptStatus
 
 
 class DeploymentPackageExt(Base):
@@ -33,11 +34,17 @@ class DeploymentPackageExt(Base):
     prompt_template = Column(String, nullable=False)
     created_on = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_on = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False
     )
 
     # Relationship to the local SQLite table
-    heygen_template = relationship("HeyGenTemplate", backref="package_extensions")
+    heygen_template = relationship(
+        "HeyGenTemplate",
+        backref="package_extensions"
+    )
 
 
 class Script(Base, BaseMixin):

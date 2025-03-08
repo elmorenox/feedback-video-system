@@ -1,5 +1,4 @@
 # src/services/dialogue/video.py
-import json
 import uuid
 
 from typing import Any, Dict, Optional, List
@@ -9,20 +8,22 @@ from fastapi import HTTPException
 
 from src.models.video import Script, Video
 from src.api.dependencies.db import (
-    select_student_deployment_details,
+    select_student_deployment,
     select_cohort_scores,
 )
 from src.services.dialogue.script import generate as generate_script
 from src.schema.itp import (
     CohortComparison,
-    ScriptPromptData,
-    StudentDeploymentDetails,
+    StudentDeployment,
+    StudentStepSummary,
+    StudentComponentSummary,
 )
 from src.schema.video import (
     HeyGenVariable,
     HeyGenPayload,
     HeyGenResponseData,
     HeyGenVariableProperties,
+    ScriptRequestPayload,
     VideoData,
     VideoDimension,
     VideoStatus,
@@ -39,7 +40,7 @@ async def create(student_deployment_id: int, db: Session) -> VideoData:
     Create a video for a deployment, handling script generation and HeyGen submission
     """
 
-    script_prompt_data: ScriptPromptData = get_script_prompt_data(
+    script_request_payload: ScriptRequestPayload = get_script_request_payload(
         student_deployment_id,
         db
     )
@@ -49,13 +50,13 @@ async def create(student_deployment_id: int, db: Session) -> VideoData:
     # Generate script
     app_logger.debug("Creating script")
     script: Script = await generate_script(
-        script_prompt_data,
+        script_request_payload,
         db
     )
 
     # Create video record
     video: Video = Video(
-        student_deployment_id=script_prompt_data.deployment_details.deployment.id,
+        student_deployment_id=student_deployment_id,
         script_id=script.id,
         status=VideoStatus.NOT_SUBMITTED,
     )
@@ -67,25 +68,27 @@ async def create(student_deployment_id: int, db: Session) -> VideoData:
     # return details from HeyGen API response
     heygen_response: HeyGenResponseData = await submit_to_heygen(
         template_id=settings.HEYGEN_TEMPLATE_ID,
-        script_prompt_data=script_prompt_data,
+        script_request_payload=script_request_payload,
         script=script,
         db=db,
     )
 
     video.status = (
-        VideoStatus.PROCESSING if heygen_response.success else VideoStatus.FAILED
+        VideoStatus.PROCESSING
+        if heygen_response.success
+        else VideoStatus.FAILED
     )
     video.heygen_video_id = heygen_response.video_id
     video.heygen_response = heygen_response
     db.commit()
 
-    return VideoData.from_orm(video)
+    return VideoData.model_validate(video)
 
 
-def get_script_prompt_data(
+def get_script_request_payload(
     student_deployment_id: int,
     db: Session,
-) -> Optional[ScriptPromptData]:
+) -> Optional[ScriptRequestPayload]:
     """
     Get complete data needed for script generation.
     Uses query chaining where possible for efficiency.
@@ -98,52 +101,58 @@ def get_script_prompt_data(
         ScriptPromptData model or None if not found
     """
     # Get complete deployment details
-    student_deployment_details: StudentDeploymentDetails = select_student_deployment_details(
+    student_deployment: StudentDeployment = select_student_deployment(
         student_deployment_id
     )
-    if not student_deployment_details:
+    if not student_deployment:
         return None
 
-    # Get cohort comparison if requested
     cohort_comparison = None
     if (
-        student_deployment_details.deployment.acc_score is not None
+        student_deployment.acc_score is not None
     ):
         # Get cohort scores
         cohort_scores = select_cohort_scores(
-            cohort_id=student_deployment_details.cohort.id,
-            package_id=student_deployment_details.deployment.package_id
+            cohort_id=student_deployment.cohort.id,
+            package_id=student_deployment.deployment_package.id
         )
 
         # Calculate comparison metrics
-        cohort_comparison = calculate_cohort_comparison(
-            student_deployment_details.deployment.acc_score, cohort_scores
+        cohort_comparison: CohortComparison = calculate_cohort_comparison(
+            student_deployment.acc_score, cohort_scores
         )
 
-    components_summary = [
-        {
-            "component_category": component.component_category,
-            "score": component.score,
-            "steps": [
-                {"step_name": step.step_name, "score": step.score}
-                for step in component.steps
-            ],
-        }
-        for component in student_deployment_details.deployment.components
+    # construct components summary List[StudentComponentSummary]
+    # use components. construct StudentStepSummary and StudentComponentSummary
+
+    components_summary: List[StudentComponentSummary] = [
+        StudentComponentSummary(
+            component_category=comp.component_category,
+            score=comp.score,
+            steps=[
+                StudentStepSummary(
+                    step_name=step.step_name,
+                    score=step.score
+                )
+                for step in comp.steps
+            ]
+        )
+        for comp in student_deployment.components
     ]
 
+    student_deployment.components_summary = components_summary
+
     stmt = select(DeploymentPackageExt).where(
-        DeploymentPackageExt.deployment_package_id == student_deployment_details.deployment.package_id
+        DeploymentPackageExt.deployment_package_id
+        == student_deployment.deployment_package.id
     )
+
     deployment_package: DeploymentPackageExt = db.execute(stmt).scalar_one()
 
-    student_deployment_details.package.prompt = deployment_package.prompt_template
-
-    # Create comprehensive data model
-    return ScriptPromptData(
-        deployment_details=student_deployment_details,
+    return ScriptRequestPayload(
+        prompt=deployment_package.prompt_template,
+        student_deployment=student_deployment,
         cohort_comparison=cohort_comparison,
-        components_summary=components_summary
     )
 
 
@@ -205,7 +214,7 @@ def calculate_cohort_comparison(
 
 async def submit_to_heygen(
     template_id: uuid.UUID,
-    script_prompt_data: ScriptPromptData,
+    script_request_payload: ScriptRequestPayload,
     script: Script,
     db: Session,
     options: Optional[Dict[str, Any]] = None,
@@ -226,14 +235,18 @@ async def submit_to_heygen(
     # Build payload using template-driven mapping with options
     payload: HeyGenPayload = await build_heygen_payload(
         template_id=template_id,
-        script_prompt_data=script_prompt_data,
+        student_deployment=script_request_payload.student_deployment,
+        cohort_comparison=script_request_payload.cohort_comparison,
         script=script,
         db=db,
         options=options,
     )
 
     # Set up API request
-    headers = {"X-Api-Key": settings.HEYGEN_API_KEY, "Content-Type": "application/json"}
+    headers = {
+        "X-Api-Key": settings.HEYGEN_API_KEY,
+        "Content-Type": "application/json"
+    }
 
     async with httpx.AsyncClient() as client:
         # Get template info
@@ -288,7 +301,8 @@ async def submit_to_heygen(
 
 async def build_heygen_payload(
     template_id: uuid.UUID,
-    script_prompt_data: ScriptPromptData,
+    student_deployment: StudentDeployment,
+    cohort_comparison: Optional[CohortComparison],
     script: Script,
     db: Session,
     options: Optional[Dict[str, Any]] = None,
@@ -301,7 +315,8 @@ async def build_heygen_payload(
         script_prompt_data: All data needed for script generation
         script: The generated script
         db: Database session
-        options: Additional options for HeyGen API (dimension, include_gif, etc.)
+        options: Additional options
+        for HeyGen API (dimension, include_gif, etc.)
 
     Returns:
         Complete HeyGen payload with all parameters
@@ -331,39 +346,41 @@ async def build_heygen_payload(
     app_logger.debug(f"Required models for HeyGen payload: {required_models}")
 
     # Initialize context builder
-    context_builder = ContextBuilder(script_prompt_data, script)
+    context_builder = ContextBuilder(student_deployment, script)
 
     # Register models based on what's needed in the mappings
     if "student" in required_models:
         context_builder.register_model(
-            "student", script_prompt_data.deployment_details.student
+            "student", student_deployment.student
         )
 
     if "cohort" in required_models:
         context_builder.register_model(
-            "cohort", script_prompt_data.deployment_details.cohort
+            "cohort", student_deployment.cohort
         )
 
-    if "deployment" in required_models:
+    if "student_deployment" in required_models:
         context_builder.register_model(
-            "deployment", script_prompt_data.deployment_details.deployment
+            "student_deployment", student_deployment
         )
 
-    if "package" in required_models:
+    if "deployment_package" in required_models:
         context_builder.register_model(
-            "package", script_prompt_data.deployment_details.package
+            "deployment_package", student_deployment.deployment_package
         )
 
     if "cohort_comparison" in required_models:
         context_builder.register_model(
             "cohort_comparison",
-            script_prompt_data.cohort_comparison,
+            cohort_comparison,
             # Use empty dict if None
-            dict_method="dict" if script_prompt_data.cohort_comparison else None,
+            dict_method="dict" if cohort_comparison else None,
         )
 
     if "script" in required_models:
-        context_builder.register_script_data()
+        context_builder.register_model(
+            "script", script, dict_method="dict"
+        )
 
     # Get the built context
     mapping_context = context_builder.get_context()
@@ -386,7 +403,7 @@ async def build_heygen_payload(
         "caption": options.get("caption", False),
         "title": options.get(
             "title",
-            f"{script_prompt_data.deployment_details.student.full_name} - {script_prompt_data.deployment_details.package.name} Feedback",
+            f"{student_deployment.student.full_name} - {student_deployment.deployment_package.name} Feedback",
         ),
         "variables": variables,
         "include_gif": options.get("include_gif", False),
@@ -421,7 +438,9 @@ def get_required_models(mappings: List[Dict]) -> set[str]:
         Set of required source_model names
     """
     return {
-        mapping["source_model"] for mapping in mappings if "source_model" in mapping
+        mapping["source_model"]
+        for mapping in mappings
+        if "source_model" in mapping
     }
 
 
@@ -562,7 +581,9 @@ def transform_value(value: Any, transform_type: str, config: Dict) -> Any:
     return value
 
 
-def filter_heygen_variables(template_info, payload: HeyGenPayload) -> HeyGenPayload:
+def filter_heygen_variables(
+        template_info, payload: HeyGenPayload
+) -> HeyGenPayload:
     """
     Filter payload variables to only include those defined in the HeyGen template
 
@@ -574,7 +595,13 @@ def filter_heygen_variables(template_info, payload: HeyGenPayload) -> HeyGenPayl
         Updated payload with only valid variables
     """
     # Extract allowed variable names from template info
-    allowed_variables = set(template_info.get("data", {}).get("variables", {}).keys())
+    allowed_variables = set(
+        template_info.get(
+            "data", {}
+            ).get(
+                "variables", {}
+                ).keys()
+            )
 
     # Filter payload variables
     filtered_variables = {}
@@ -596,15 +623,18 @@ class ContextBuilder:
     Dynamically builds a context for template variable mapping
     """
 
-    def __init__(self, script_prompt_data, script):
-        self.script_prompt_data = script_prompt_data
+    def __init__(self, student_deployment, script):
+        self.student_deployment = student_deployment
         self.script = script
         self._context = {}
         self._register_special_handlers()
 
     def _register_special_handlers(self):
         """Register special object handlers for method calls"""
-        self._context["special"] = {"script_prompt_data": self.script_prompt_data}
+        self._context["special"] = {
+            "student_deployment":
+            self.student_deployment
+        }
 
     def register_model(self, name: str, model_obj, dict_method: str = "dict"):
         """
@@ -613,7 +643,8 @@ class ContextBuilder:
         Args:
             name: The key to use in the context
             model_obj: The model object
-            dict_method: Method name to convert object to dict (default: "dict")
+            dict_method: Method name
+            to convert object to dict (default: "dict")
         """
         if model_obj is None:
             self._context[name] = {}
@@ -629,18 +660,6 @@ class ContextBuilder:
             # Fall back to __dict__ if no dict method available
             self._context[name] = model_obj.__dict__
 
-    def register_script_data(self):
-        # TODO: Needs a pydantic model for scene_dialogue
-        """Register script data with special handling for scene_dialogue"""
-        script_data = {
-            "scene_dialogue": (
-                json.loads(self.script.scene_dialogue)
-                if isinstance(self.script.scene_dialogue, str)
-                else self.script.scene_dialogue
-            )
-        }
-        self._context["script"] = script_data
-
     def get_context(self):
         """Get the built context dictionary"""
         return self._context
@@ -652,8 +671,8 @@ async def submit_to_heygen_by_deployment_id(
     db: Session,
 ) -> VideoData:
     """
-    Submit a video to HeyGen using existing script and video details for a given student_deployment_id.
-    Skips script and video generation.
+    Submit a video to HeyGen using existing script and video details
+    for a given student_deployment_id. Skips script and video generation.
     """
     # Fetch the existing video record
     video: Optional[Video] = (
@@ -663,7 +682,8 @@ async def submit_to_heygen_by_deployment_id(
     )
     if not video:
         raise HTTPException(
-            status_code=404, detail="Video not found for the given deployment ID"
+            status_code=404,
+            detail="Video not found for the given deployment ID"
         )
 
     # Fetch the associated script
@@ -671,28 +691,33 @@ async def submit_to_heygen_by_deployment_id(
         db.query(Script).filter(Script.id == video.script_id).first()
     )
     if not script:
-        raise HTTPException(status_code=404, detail="Script not found for the video")
+        raise HTTPException(
+            status_code=404,
+            detail="Script not found for the video"
+        )
 
     # Fetch script prompt data (if needed for HeyGen submission)
-    script_prompt_data: ScriptPromptData = get_script_prompt_data(
+    script_request_payload: ScriptRequestPayload = get_script_request_payload(
         student_deployment_id, db
     )
 
     # Submit to HeyGen
     heygen_response: HeyGenResponseData = await submit_to_heygen(
         template_id=settings.HEYGEN_TEMPLATE_ID,
-        script_prompt_data=script_prompt_data,
+        script_prompt_data=script_request_payload,
         script=script,
         db=db,
     )
 
     # Update video status and HeyGen details
     video.status = (
-        VideoStatus.PROCESSING if heygen_response.success else VideoStatus.FAILED
+        VideoStatus.PROCESSING
+        if heygen_response.success
+        else VideoStatus.FAILED
     )
     video.heygen_video_id = heygen_response.video_id
     video.heygen_response = heygen_response
     db.commit()
     db.refresh(video)
 
-    return VideoData.from_orm(video)
+    return VideoData.model_validate(video)

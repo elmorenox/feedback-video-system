@@ -157,21 +157,13 @@ class StudentDeployment(BaseModel):
         lines = []
         lines.append("High Scoring Steps:")
         for step_name, score in top_steps:
-            lines.append(
-                f"""
-                • {step_name}: {score if score != float('-inf') else 'N/A'}
-                """
-            )
+            lines.append(f"• {step_name}: {score if score != float('-inf') else 'N/A'}")
 
-        lines.append("Low Scoring Steps:")
+        lines.append("\nLow Scoring Steps:")
         for step_name, score in bottom_steps:
-            lines.append(
-                f"""
-                • {step_name}: {score if score != float('-inf') else 'N/A'}
-                """
-            )
+            lines.append(f"• {step_name}: {score if score != float('-inf') else 'N/A'}")
 
-        return "".join(lines)
+        return "\n".join(lines)
 
 
 class CohortComparison(BaseModel):

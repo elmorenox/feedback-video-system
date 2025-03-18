@@ -65,6 +65,7 @@ class Video(Base, BaseMixin):
     heygen_video_id = Column(String, nullable=True)
     video_url = Column(String, nullable=True)
     status = Column(String, nullable=False, default=VideoStatus.PENDING)
+    callback_id = Column(String, nullable=True)
 
 
 class HeyGenTemplate(Base, BaseMixin):

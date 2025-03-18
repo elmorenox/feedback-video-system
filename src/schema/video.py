@@ -60,6 +60,7 @@ class VideoData(DBModelBase):
     heygen_video_id: Optional[str] = None
     video_url: Optional[str] = None
     heygen_response: Optional[HeyGenResponseData] = None
+    callback_id: Optional[str] = None
 
     class Config:
         from_attributes = True

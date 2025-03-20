@@ -24,7 +24,6 @@ from src.schema.itp import (
     StudentDeployment,
 )
 from src.database import get_mysql_db
-from src.logging_config import app_logger
 
 
 def select_student(

@@ -6,7 +6,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
-from src.models.video import Script, Video
+from src.models.video import (
+    DeploymentPackageExt,
+    HeyGenTemplate,
+    Script,
+    Video,
+)
 from src.api.dependencies.db import (
     select_student_deployment,
     select_cohort_scores,
@@ -23,12 +28,12 @@ from src.schema.video import (
     HeyGenPayload,
     HeyGenResponseData,
     HeyGenVariableProperties,
+    HeyGenWebhookEvent,
     ScriptRequestPayload,
     VideoData,
     VideoDimension,
     VideoStatus,
 )
-from src.models.video import DeploymentPackageExt, HeyGenTemplate
 from src.settings import settings
 from src.logging_config import app_logger
 
@@ -37,7 +42,8 @@ import httpx
 
 async def create(student_deployment_id: int, db: Session) -> VideoData:
     """
-    Create a video for a deployment, handling script generation and HeyGen submission
+    Create a video for a deployment,
+    handling script generation and HeyGen submission
     """
 
     script_request_payload: ScriptRequestPayload = get_script_request_payload(
@@ -721,3 +727,63 @@ async def submit_to_heygen_by_deployment_id(
     db.refresh(video)
 
     return VideoData.model_validate(video)
+
+
+async def heygen_event_handler(
+    event: HeyGenWebhookEvent,
+    db: Session
+) -> bool:
+    """
+    Process HeyGen webhook events
+    Updates the video status based on the event type
+
+    Args:
+        event: The webhook event from HeyGen
+
+    Returns:
+        bool: True if the event was processed successfully
+    """
+    event_type = event.event_type
+    heygen_video_id = event.event_data.video_id
+
+    try:
+        # Find the video by heygen_video_id
+        video = db.query(
+            Video
+        ).filter(
+            Video.heygen_video_id == heygen_video_id
+            ).first()
+
+        if not video:
+            app_logger.warning(
+                f"Received webhook for unknown video: {heygen_video_id}"
+            )
+            return False
+
+        if event_type == "avatar_video.success":
+            # Update video status to completed and set the video URL
+            video.status = VideoStatus.COMPLETED
+            video.video_url = event.event_data.url
+
+            # Store callback_id if provided
+            if event.event_data.callback_id:
+                video.callback_id = event.event_data.callback_id
+
+        elif event_type == "avatar_video.fail":
+            # Update video status to failed
+            video.status = VideoStatus.FAILED
+
+        else:
+            app_logger.warning(f"Unhandled event type: {event_type}")
+            return False
+
+        # Commit changes to the database
+        db.commit()
+
+        app_logger.info(f"Processed {event_type} for video {heygen_video_id}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Error processing webhook: {e}")
+        db.rollback()
+        return False

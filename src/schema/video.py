@@ -133,3 +133,19 @@ class ScriptRequestPayload(BaseModel):
     prompt: str
     student_deployment: StudentDeployment
     cohort_comparison: CohortComparison
+
+
+class HeyGenEventData(BaseModel):
+    """Data provided in HeyGen webhook events"""
+    video_id: str
+    url: Optional[str] = None
+    callback_id: Optional[str] = None
+
+    class Config:
+        extra = "allow"
+
+
+class HeyGenWebhookEvent(BaseModel):
+    """HeyGen webhook event schema"""
+    event_type: str
+    event_data: HeyGenEventData

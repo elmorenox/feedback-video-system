@@ -60,6 +60,7 @@ class VideoData(DBModelBase):
     heygen_video_id: Optional[str] = None
     video_url: Optional[str] = None
     heygen_response: Optional[HeyGenResponseData] = None
+    callback_id: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -132,3 +133,19 @@ class ScriptRequestPayload(BaseModel):
     prompt: str
     student_deployment: StudentDeployment
     cohort_comparison: CohortComparison
+
+
+class HeyGenEventData(BaseModel):
+    """Data provided in HeyGen webhook events"""
+    video_id: str
+    url: Optional[str] = None
+    callback_id: Optional[str] = None
+
+    class Config:
+        extra = "allow"
+
+
+class HeyGenWebhookEvent(BaseModel):
+    """HeyGen webhook event schema"""
+    event_type: str
+    event_data: HeyGenEventData

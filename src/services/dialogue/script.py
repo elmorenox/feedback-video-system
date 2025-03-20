@@ -26,8 +26,6 @@ async def generate(
         }
     )
 
-    app_logger.debug(f"Response: {response}")
-
     # Create a new Script object
     # TODO: Check if response is a valid JSON
     # TODO: save complete prompt to the database

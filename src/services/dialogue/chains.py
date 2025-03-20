@@ -8,7 +8,6 @@ from src.logging_config import app_logger
 
 def create_chat_model() -> ChatOpenAI:
     """Initialize ChatGPT model"""
-    app_logger.debug("creating chat model")
     return ChatOpenAI(
         temperature=0,
         model_name="gpt-4o",

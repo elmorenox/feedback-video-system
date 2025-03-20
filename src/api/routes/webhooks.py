@@ -27,8 +27,6 @@ async def heygen_webhook(
     Verifies the signature via header
     Returns simple HTTP 200 response
     """
-    app_logger.info(f"Received HeyGen webhook event: {event}")
-    app_logger.info(f"Signature: {signature}")
     # Verify signature if provided and configured
     if signature and settings.HEYGEN_WEBHOOK_SECRET:
         # Use model_dump_json to get the JSON string directly

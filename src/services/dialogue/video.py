@@ -50,11 +50,8 @@ async def create(student_deployment_id: int, db: Session) -> VideoData:
         student_deployment_id,
         db
     )
-
-    app_logger.debug("Script prompt data retrieved")
-
+    
     # Generate script
-    app_logger.debug("Creating script")
     script: Script = await generate_script(
         script_request_payload,
         db
@@ -348,8 +345,6 @@ async def build_heygen_payload(
     required_models = get_required_models(
         template.variable_mappings.get("mappings", [])
     )
-
-    app_logger.debug(f"Required models for HeyGen payload: {required_models}")
 
     # Initialize context builder
     context_builder = ContextBuilder(student_deployment, script)

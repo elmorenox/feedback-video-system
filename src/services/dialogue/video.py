@@ -43,22 +43,29 @@ import httpx
 async def create(student_deployment_id: int, db: Session) -> VideoData:
     """
     Create a video for a deployment,
-    handling script generation and HeyGen submission
+    handling script generation and HeyGen submission.
+    Returns existing video if one already exists for the deployment.
     """
+    # Check if video already exists for this deployment
+    existing_video = (
+        db.query(Video)
+        .filter(Video.student_deployment_id == student_deployment_id)
+        .first()
+    )
 
-    script_request_payload: ScriptRequestPayload = get_script_request_payload(
+    if existing_video:
+        return VideoData.model_validate(existing_video)
+
+    # Always create a new script for POST requests
+    script_request_payload = get_script_request_payload(
         student_deployment_id,
         db
     )
-    
-    # Generate script
-    script: Script = await generate_script(
-        script_request_payload,
-        db
-    )
+
+    script = await generate_script(script_request_payload, db)
 
     # Create video record
-    video: Video = Video(
+    video = Video(
         student_deployment_id=student_deployment_id,
         script_id=script.id,
         status=VideoStatus.NOT_SUBMITTED,
@@ -68,8 +75,7 @@ async def create(student_deployment_id: int, db: Session) -> VideoData:
     db.refresh(video)
 
     # Submit to HeyGen
-    # return details from HeyGen API response
-    heygen_response: HeyGenResponseData = await submit_to_heygen(
+    heygen_response = await submit_to_heygen(
         template_id=settings.HEYGEN_TEMPLATE_ID,
         script_request_payload=script_request_payload,
         script=script,
@@ -77,9 +83,7 @@ async def create(student_deployment_id: int, db: Session) -> VideoData:
     )
 
     video.status = (
-        VideoStatus.PROCESSING
-        if heygen_response.success
-        else VideoStatus.FAILED
+        VideoStatus.PROCESSING if heygen_response.success else VideoStatus.FAILED
     )
     video.heygen_video_id = heygen_response.video_id
     video.heygen_response = heygen_response

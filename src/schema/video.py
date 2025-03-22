@@ -13,14 +13,16 @@ from src.schema.itp import StudentDeployment, CohortComparison
 
 
 class VideoStatus(str, Enum):
-    # Status that HeyGen provides
-    # Not submitted is not a HeyGen status,
-    # but a status we use to indicate that the video has not been submitted.
-    NOT_SUBMITTED = "not_submitted"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    PENDING = "pending"
+    # Internal statuses
+    NOT_SUBMITTED = "not_submitted"  # Internal: Never sent to HeyGen
+    DELETED = "deleted"  # Internal: Permanently deleted
+    REGENERATING = "regenerating"  # Internal: Being replaced with new version
+
+    # HeyGen statuses
+    PROCESSING = "processing"  # HeyGen: Being processed
+    COMPLETED = "completed"  # HeyGen: Ready to view
+    FAILED = "failed"  # HeyGen: Failed to process
+    PENDING = "pending"  # HeyGen: Queued for processing
 
 
 # Base Models for API Responses
@@ -36,8 +38,16 @@ class DBModelBase(TimeStampedModel):
         from_attributes = True
 
 
-class CreateVideoRequest(BaseModel):
+class VideoRequestIn(BaseModel):
     student_deployment_id: int
+
+
+class PatchVideoRequest(VideoRequestIn):
+    """Request model for partial video updates (PATCH)"""
+    reuse_script: bool = True
+
+    class Config:
+        json_schema_extra = {"example": {"reuse_script": True}}
 
 
 class HeyGenResponseData(BaseModel):

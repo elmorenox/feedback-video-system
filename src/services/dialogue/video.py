@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from src.models.video import (
     DeploymentPackageExt,
     HeyGenTemplate,
-    Script,
+    Script as ORMScript,
     Video,
 )
 from src.api.dependencies.db import (
@@ -29,6 +29,7 @@ from src.schema.video import (
     HeyGenResponseData,
     HeyGenVariableProperties,
     HeyGenWebhookEvent,
+    Script,
     ScriptRequestPayload,
     VideoData,
     VideoDimension,
@@ -39,9 +40,15 @@ from src.logging_config import app_logger
 
 import httpx
 
+HEYGEN_HEADERS = {
+    "accept": "application/json",
+    "x-api-key": settings.HEYGEN_API_KEY
+}
+
 
 async def create(student_deployment_id: int, db: Session) -> VideoData:
     """
+    POST Endpoint implementation: Create a video for a deployment,
     Create a video for a deployment,
     handling script generation and HeyGen submission.
     Returns existing video if one already exists for the deployment.
@@ -222,7 +229,7 @@ def calculate_cohort_comparison(
 async def submit_to_heygen(
     template_id: uuid.UUID,
     script_request_payload: ScriptRequestPayload,
-    script: Script,
+    script: ORMScript,
     db: Session,
     options: Optional[Dict[str, Any]] = None,
 ) -> HeyGenResponseData:
@@ -249,16 +256,13 @@ async def submit_to_heygen(
         options=options,
     )
 
-    # Set up API request
-    headers = {
-        "X-Api-Key": settings.HEYGEN_API_KEY,
-        "Content-Type": "application/json"
-    }
-
     async with httpx.AsyncClient() as client:
         # Get template info
         template_url = f"https://api.heygen.com/v2/template/{template_id}"
-        template_response = await client.get(template_url, headers=headers)
+        template_response = await client.get(
+            template_url,
+            headers=HEYGEN_HEADERS
+        )
 
         if not template_response.is_success:
             app_logger.error(
@@ -281,22 +285,31 @@ async def submit_to_heygen(
         # Submit request
         generate_url = f"https://api.heygen.com/v2/template/{template_id}/generate"
         response = await client.post(
-            generate_url, headers=headers, json=filtered_payload.dict()
+            generate_url,
+            headers=HEYGEN_HEADERS,
+            json=filtered_payload.model_dump()
         )
 
         response_data = response.json()
 
-        if not response.is_success or (
-            "error" in response_data and response_data["error"]
-        ):
-            error_msg = response_data.get("error", "Unknown error")
+        if not response.is_success:
+            # Extract error message with fallbacks for different error formats
+            error_msg = "Unknown error"
+
+            # Check for error in the "error" object structure
+            if isinstance(response_data.get("error"), dict):
+                error_msg = response_data["error"].get("message", error_msg)
+
+            # Check for code/message direct structure
+            elif "message" in response_data:
+                error_msg = response_data.get("message", error_msg)
             app_logger.error(f"HeyGen API error: {error_msg}")
             return HeyGenResponseData(
                 success=False, error=error_msg, status=VideoStatus.FAILED
             )
 
         # Process successful response
-        heygen_video_id = response_data.get("data", {}).get("video_id")
+        heygen_video_id: str = response_data.get("data", {}).get("video_id")
 
         return HeyGenResponseData(
             success=True,
@@ -310,7 +323,7 @@ async def build_heygen_payload(
     template_id: uuid.UUID,
     student_deployment: StudentDeployment,
     cohort_comparison: Optional[CohortComparison],
-    script: Script,
+    script: ORMScript,
     db: Session,
     options: Optional[Dict[str, Any]] = None,
 ) -> HeyGenPayload:
@@ -384,7 +397,9 @@ async def build_heygen_payload(
 
     if "script" in required_models:
         context_builder.register_model(
-            "script", script, dict_method="dict"
+            "script",
+            script,
+            dict_method="dict"
         )
 
     # Get the built context
@@ -670,51 +685,73 @@ class ContextBuilder:
         return self._context
 
 
-# TO DO: This could be the PATCH or UPDATE route.
-async def submit_to_heygen_by_deployment_id(
-    student_deployment_id: int,
-    db: Session,
+async def update_video(
+        student_deployment_id: int,
+        db: Session
 ) -> VideoData:
     """
-    Submit a video to HeyGen using existing script and video details
-    for a given student_deployment_id. Skips script and video generation.
+    PUT endpoint implementation: Complete replacement of a video resource.
+    Generates a new script and video, deletes the old video from HeyGen.
+
+    Args:
+        student_deployment_id: The ID of the student deployment
+        db: Database session
+
+    Returns:
+        Updated Video object
     """
-    # Fetch the existing video record
-    video: Optional[Video] = (
+    # Check if video exists
+    existing_video = (
         db.query(Video)
         .filter(Video.student_deployment_id == student_deployment_id)
         .first()
     )
-    if not video:
+
+    # If video exists, delete it from HeyGen
+    if existing_video:
+        if existing_video.heygen_video_id:
+            await delete_heygen_video(existing_video.heygen_video_id)
+
+        # Mark old video as deleted in database
+        existing_video.status = VideoStatus.REGENERATING
+        db.commit()
+    else:
         raise HTTPException(
             status_code=404,
             detail="Video not found for the given deployment ID"
         )
 
-    # Fetch the associated script
-    script: Optional[Script] = (
-        db.query(Script).filter(Script.id == video.script_id).first()
-    )
-    if not script:
-        raise HTTPException(
-            status_code=404,
-            detail="Script not found for the video"
-        )
-
-    # Fetch script prompt data (if needed for HeyGen submission)
+    # Generate completely new script and video (similar to create function)
     script_request_payload: ScriptRequestPayload = get_script_request_payload(
         student_deployment_id, db
     )
 
+    app_logger.debug("Script prompt data retrieved for update")
+
+    # Generate new script
+    app_logger.debug("Creating new script for update")
+
+    script: ORMScript = await generate_script(script_request_payload, db)
+
+    # Update existing record
+    video = existing_video
+    video.script_id = script.id
+    video.status = VideoStatus.NOT_SUBMITTED
+    video.heygen_video_id = None
+    video.heygen_response = None
+    video.video_url = None
+
+    db.commit()
+    db.refresh(video)
+
     # Submit to HeyGen
     heygen_response: HeyGenResponseData = await submit_to_heygen(
         template_id=settings.HEYGEN_TEMPLATE_ID,
-        script_prompt_data=script_request_payload,
+        script_request_payload=script_request_payload,
         script=script,
         db=db,
     )
 
-    # Update video status and HeyGen details
     video.status = (
         VideoStatus.PROCESSING
         if heygen_response.success
@@ -723,14 +760,137 @@ async def submit_to_heygen_by_deployment_id(
     video.heygen_video_id = heygen_response.video_id
     video.heygen_response = heygen_response
     db.commit()
-    db.refresh(video)
 
-    return VideoData.model_validate(video)
+    return video
+
+
+async def patch_video(
+    student_deployment_id: int, reuse_script: bool = True, db: Session = None
+) -> VideoData:
+    """
+    PATCH endpoint implementation: Partial update of a video resource.
+    By default reuses existing script and only regenerates the video.
+
+    Args:
+        student_deployment_id: The ID of the student deployment
+        reuse_script: Whether to reuse the existing script (default: True)
+        db: Database session
+
+    Returns:
+        Updated VideoData object
+    """
+    # Check if video exists
+    existing_video: Video = (
+        db.query(Video)
+        .filter(Video.student_deployment_id == student_deployment_id)
+        .first()
+    )
+
+    if not existing_video:
+        raise HTTPException(
+            status_code=404, detail="Video not found for the given deployment ID"
+        )
+
+    # If video exists, delete it from HeyGen
+    if existing_video.heygen_video_id:
+        await delete_heygen_video(existing_video.heygen_video_id)
+
+    # Mark as regenerating to indicate the transition state
+    existing_video.status = VideoStatus.REGENERATING
+    db.commit()
+
+    script_request_payload: ScriptRequestPayload = get_script_request_payload(
+        student_deployment_id,
+        db
+    )
+
+    # Either reuse existing script or generate a new one
+    if reuse_script and existing_video.script_id:
+        # Fetch the existing script
+        orm_script: ORMScript = (
+            db.query(ORMScript)
+            .filter(ORMScript.id == existing_video.script_id)
+            .first()
+        )
+
+        script = Script.model_validate(orm_script)
+
+        if not orm_script:
+            app_logger.warning(
+                f"Script {existing_video.script_id} not found, generating new script"
+            )
+            script: Script = await generate_script(script_request_payload, db)
+    else:
+        # Generate a new script
+        script: Script = await generate_script(script_request_payload, db)
+        existing_video.script_id = script.id
+
+    # Reset video properties for new submission
+    existing_video.status = VideoStatus.NOT_SUBMITTED
+    existing_video.heygen_video_id = None
+    existing_video.video_url = None
+    db.commit()
+
+    # Submit to HeyGen
+    heygen_response: HeyGenResponseData = await submit_to_heygen(
+        template_id=settings.HEYGEN_TEMPLATE_ID,
+        script_request_payload=script_request_payload,
+        script=script,
+        db=db,
+    )
+
+    # Update video with HeyGen response
+    existing_video.status = (
+        VideoStatus.PROCESSING
+        if heygen_response.success
+        else VideoStatus.FAILED
+    )
+    existing_video.heygen_video_id = heygen_response.video_id
+    existing_video.heygen_response = heygen_response
+    db.commit()
+
+    return VideoData.model_validate(existing_video)
+
+
+async def delete_heygen_video(video_id: str) -> bool:
+    """
+    Delete a video from HeyGen
+
+    Args:
+        video_id: HeyGen video ID
+
+    Returns:
+        bool: True if deletion was successful
+    """
+    if not video_id:
+        return False
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(
+                f"https://api.heygen.com/v1/video.delete?video_id={video_id}",
+                headers=HEYGEN_HEADERS,
+            )
+
+        if response.status_code == 200:
+            app_logger.info(
+                f"Successfully deleted video {video_id} from HeyGen"
+            )
+            return True
+        else:
+            app_logger.error(
+                f"""Failed to delete video {video_id} from HeyGen:
+                {response.status_code}"""
+            )
+            return False
+    except Exception as e:
+        app_logger.error(f"Error deleting video from HeyGen: {e}")
+        return False
 
 
 async def heygen_event_handler(
-    event: HeyGenWebhookEvent,
-    db: Session
+        event: HeyGenWebhookEvent,
+        db: Session
 ) -> bool:
     """
     Process HeyGen webhook events
@@ -747,11 +907,11 @@ async def heygen_event_handler(
 
     try:
         # Find the video by heygen_video_id
-        video = db.query(
-            Video
-        ).filter(
-            Video.heygen_video_id == heygen_video_id
-            ).first()
+        video = (
+            db.query(Video)
+            .filter(Video.heygen_video_id == heygen_video_id)
+            .first()
+        )
 
         if not video:
             app_logger.warning(
@@ -786,3 +946,54 @@ async def heygen_event_handler(
         app_logger.error(f"Error processing webhook: {e}")
         db.rollback()
         return False
+
+
+async def delete_video(student_deployment_id: int, db: Session) -> bool:
+    """
+    DELETE endpoint implementation: Permanently removes a video and its associated script.
+    Deletes the video from HeyGen if it exists there and removes database records.
+
+    Args:
+        student_deployment_id: The ID of the student deployment
+        db: Database session
+
+    Returns:
+        bool: True if deletion was successful
+    """
+    # Find the video
+    video = (
+        db.query(Video)
+        .filter(Video.student_deployment_id == student_deployment_id)
+        .first()
+    )
+
+    if not video:
+        raise HTTPException(
+            status_code=404,
+            detail="Video not found for the given deployment ID"
+        )
+
+    # Store script ID for later
+    script_id = video.script_id
+
+    # Delete from HeyGen if video ID exists
+    if video.heygen_video_id:
+        await delete_heygen_video(video.heygen_video_id)
+        app_logger.info(f"Deleted video {video.heygen_video_id} from HeyGen")
+
+    # Now delete the script if it exists
+    if script_id:
+        script = db.query(ORMScript).filter(ORMScript.id == script_id).first()
+        if script:
+            db.delete(script)
+            db.commit()
+            app_logger.info(f"Deleted script record with ID {script_id}")
+
+    # Delete video from database
+    db.delete(video)
+    db.commit()
+    app_logger.info(
+        f"Deleted video record for deployment {student_deployment_id}"
+    )
+
+    return True

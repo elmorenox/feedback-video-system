@@ -15,6 +15,7 @@ from src.models.video import (
 from src.api.dependencies.db import (
     select_student_deployment,
     select_cohort_scores,
+    get_student_deployment,
 )
 from src.services.dialogue.script import generate as generate_script
 from src.schema.itp import (
@@ -62,6 +63,15 @@ async def create(student_deployment_id: int, db: Session) -> VideoData:
 
     if existing_video:
         return VideoData.model_validate(existing_video)
+
+    # Check if studnet deployment exists
+    student_deployment = get_student_deployment(student_deployment_id)
+
+    if not student_deployment:
+        raise HTTPException(
+            status_code=404,
+            detail="Student deployment not found"
+        )
 
     # Always create a new script for POST requests
     script_request_payload = get_script_request_payload(

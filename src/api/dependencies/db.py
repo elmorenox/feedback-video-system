@@ -1,4 +1,7 @@
 # src/api/dependencies/db.py
+# TODO: This file needs to be moved to it's services modules
+# TODO: e.g. most of this should be in src/services/dialogue/queries.py
+
 import json
 
 from typing import List, Union
@@ -188,6 +191,7 @@ def select_deployment_package(
     return DeploymentPackage.model_validate(result)
 
 
+# TODO: This needs to be ranamed to select_student_deployment_details
 def select_student_deployment(student_deployment_id: int, to_pydantic: bool = True):
     """
     Fetch student deployment details from the database using SQLAlchemy ORM and MySQL JSON functions.
@@ -453,3 +457,20 @@ def select_deployment_package_extension(
     )
     deployment_package: DeploymentPackageExt = db.execute(stmt).scalar_one()
     return deployment_package
+
+
+# TODO: Once select_student_deployment is renamed to
+# TODO: select_student_deployment_details
+# TODO: this function should be renamed to select_student_deployment
+def get_student_deployment(
+        student_deployment_id: int,
+        db=next(get_mysql_db())
+) -> ORMStudentDeployment:
+    stmt = select(ORMStudentDeployment).where(
+        ORMStudentDeployment.id == student_deployment_id
+    )
+    student_deployment: ORMStudentDeployment = (
+        db.execute(stmt).scalar_one_or_none()
+    )
+
+    return student_deployment
